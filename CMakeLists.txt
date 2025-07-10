@@ -60,6 +60,7 @@ option(BUILD_MINECRAFT_COLOR_PICKER_TESTS "Build test programs. This will build 
 set(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(lib/blt-with-graphics)
+add_subdirectory(lib/json)
 
 find_package(SQLite3 REQUIRED)
 
@@ -71,7 +72,7 @@ add_executable(minecraft-color-picker ${PROJECT_BUILD_FILES})
 compile_options(minecraft-color-picker)
 
 target_link_libraries(minecraft-color-picker PRIVATE BLT_WITH_GRAPHICS SQLite::SQLite3)
-
+target_link_libraries(minecraft-color-picker PRIVATE nlohmann_json::nlohmann_json)
 
 if (${BUILD_MINECRAFT_COLOR_PICKER_EXAMPLES})
 

@@ -19,4 +19,21 @@
 #ifndef ASSET_LOADER_H
 #define ASSET_LOADER_H
 
+#include <sql.h>
+
+class asset_loader_t
+{
+public:
+	asset_loader_t(std::string folder, std::string name);
+
+	[[nodiscard]] const std::string& get_name() const
+	{
+		return name;
+	}
+private:
+	database_t db;
+	std::string folder;
+	std::string name;
+};
+
 #endif //ASSET_LOADER_H
