@@ -136,7 +136,11 @@ public:
 			return sqlite3_bind_null(statement, col);
 		} else if constexpr (std::is_same_v<Decay, std::string> || std::is_same_v<Decay, std::string_view>)
 		{
-			return sqlite3_bind_text(statement, col, type.data(), type.size(), nullptr);
+			auto str_copy = new char[type.size()];
+			std::memcpy(str_copy, type.data(), type.size());
+			return sqlite3_bind_text(statement, col, str_copy, type.size(), [](void* ptr) {
+				delete[] static_cast<char*>(ptr);
+			});
 		} else if constexpr (std::is_same_v<Decay, char*> || std::is_same_v<Decay, const char*>)
 		{
 			return sqlite3_bind_text(statement, col, type, -1, nullptr);

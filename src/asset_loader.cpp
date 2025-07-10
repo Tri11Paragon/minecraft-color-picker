@@ -21,13 +21,14 @@
 #include <filesystem>
 #include <istream>
 
-asset_loader_t::asset_loader_t(std::string  folder, std::string  name): db{name + ".assets"}, folder{std::move(folder)}, name{std::move(name)}
+asset_loader_t::asset_loader_t(std::string folder, std::string name): db{name + ".assets"}, folder{std::move(folder)}, name{std::move(name)}
 {
 	if (!std::filesystem::exists(folder))
 		throw std::runtime_error("Folder does not exist!");
-	if (!std::filesystem::exists(folder + "minecraft/models/block/"))
-		throw std::runtime_error("Required Minecraft folder does not exist!");
 
+	/*
+	 * Tables
+	 */
 	auto texture_table = db.builder().create_table("textures");
 	texture_table.with_column<std::string>("name").primary_key();
 	texture_table.with_column<blt::u32>("width").not_null();
@@ -35,9 +36,27 @@ asset_loader_t::asset_loader_t(std::string  folder, std::string  name): db{name 
 	texture_table.with_column<std::byte*>("data").not_null();
 	texture_table.build().execute();
 
+	std::optional<std::filesystem::path> model_folder;
+	std::optional<std::filesystem::path> texture_folder;
+
 	auto block_model_folder = folder + "minecraft/models/block/";
 	for (const auto& entry : std::filesystem::directory_iterator(block_model_folder))
 	{
-		if (entry.path().extension() != ".json")
+		if (!entry.is_directory())
 			continue;
+		if (entry.path().string().find("models") != std::string::npos)
+		{
+			model_folder = entry.path();
+		}
+		if (entry.path().string().find("textures") != std::string::npos)
+		{
+			texture_folder = entry.path();
+		}
+	}
+
+	if (!model_folder)
+		throw std::runtime_error("Could not find model folder!");
+	if (!texture_folder)
+		throw std::runtime_error("Could not find texture folder!");
+
 }
