@@ -19,14 +19,13 @@
 #ifndef SQL_H
 #define SQL_H
 
+#include <cstring>
 #include <sqlite3.h>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 #include <blt/iterator/enumerate.h>
-#include <blt/logging/logging.h>
-#include <blt/std/utility.h>
 
 namespace detail
 {
@@ -217,7 +216,8 @@ public:
 		return binder_t{statement};
 	}
 
-	[[jetbrains::has_side_effects]] bool execute() const; // NOLINT
+	// returns true if the statement has a row. false otherwise. optional is empty if there is an error
+	[[jetbrains::has_side_effects]] std::optional<bool> execute() const; // NOLINT
 
 	[[nodiscard]] column_t fetch() const
 	{
@@ -391,7 +391,7 @@ public:
 
 	database_t(const database_t& copy) = delete;
 
-	database_t(database_t& move) noexcept: db{std::exchange(move.db, nullptr)}
+	database_t(database_t&& move) noexcept: db{std::exchange(move.db, nullptr)}
 	{}
 
 	database_t& operator=(const database_t&) = delete;

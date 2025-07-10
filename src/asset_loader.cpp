@@ -21,10 +21,19 @@
 #include <filesystem>
 #include <istream>
 
-asset_loader_t::asset_loader_t(std::string folder, std::string name): db{name + ".assets"}, folder{std::move(folder)}, name{std::move(name)}
+asset_loader_t::asset_loader_t(std::string asset_folder, std::string name, std::optional<std::string> data_folder): data{database_t{name + ".assets"},
+																														std::move(asset_folder),
+																														std::move(data_folder),
+																														std::move(name)}
 {
-	if (!std::filesystem::exists(folder))
-		throw std::runtime_error("Folder does not exist!");
+}
+
+blt::expected<assets_data_t, load_failure_t> asset_loader_t::load_assets()
+{
+	if (!contains)
+		return blt::unexpected(load_failure_t::ASSETS_ALREADY_LOADED);
+	if (!std::filesystem::exists(data.asset_folder))
+		return blt::unexpected(load_failure_t::ASSET_FOLDER_NOT_FOUND);
 
 	/*
 	 * Tables
@@ -38,9 +47,9 @@ asset_loader_t::asset_loader_t(std::string folder, std::string name): db{name + 
 
 	std::optional<std::filesystem::path> model_folder;
 	std::optional<std::filesystem::path> texture_folder;
+	std::optional<std::filesystem::path> tags_folder;
 
-	auto block_model_folder = folder + "minecraft/models/block/";
-	for (const auto& entry : std::filesystem::directory_iterator(block_model_folder))
+	for (const auto& entry : std::filesystem::directory_iterator(data.asset_folder))
 	{
 		if (!entry.is_directory())
 			continue;
@@ -54,9 +63,28 @@ asset_loader_t::asset_loader_t(std::string folder, std::string name): db{name + 
 		}
 	}
 
-	if (!model_folder)
-		throw std::runtime_error("Could not find model folder!");
-	if (!texture_folder)
-		throw std::runtime_error("Could not find texture folder!");
+	if (data.data_folder)
+	{
+		for (const auto& entry : std::filesystem::directory_iterator(*data.data_folder))
+		{
+			if (!entry.is_directory())
+				continue;
+			if (entry.path().string().find("tags") != std::string::npos)
+			{
+				tags_folder = entry.path();
+			}
+		}
+	}
 
+	if (!model_folder)
+		return blt::unexpected(load_failure_t::MODEL_FOLDER_NOT_FOUND);
+	if (!texture_folder)
+		return blt::unexpected(load_failure_t::TEXTURE_FOLDER_NOT_FOUND);
+	if (data.data_folder && !tags_folder)
+		return blt::unexpected(load_failure_t::TAGS_FOLDER_NOT_FOUND);
+
+	auto namespace_name = model_folder->parent_path();
+
+	contains = false;
+	return std::move(data);
 }

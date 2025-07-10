@@ -58,24 +58,8 @@ void destroy(const blt::gfx::window_data&)
 int main()
 {
     // blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
-    database_t db("test.db");
-    auto silly_table = db.builder().create_table("silly");
-    silly_table.with_column<float>("meep").not_null().primary_key();
-    silly_table.with_column<int>("merow").unique();
-    silly_table.with_column<std::string>("meow").primary_key();
-    const auto silly_table_statement = silly_table.build();
-    silly_table_statement.execute();
 
-    const auto sql = "INSERT INTO silly (meep, merow, meow) VALUES (?, ?, ?)";
-    const auto insert_statement = db.prepare(sql);
-    static auto meow2 = "meow1";
-    for (int i = 0; i < 10; i++)
-    {
-        auto str = meow2 + std::to_string(i);
-        auto values = insert_statement.bind();
-        values.bind_all(0.5, i, str);
-        insert_statement.execute();
-    }
+
 
     return 0;
 }

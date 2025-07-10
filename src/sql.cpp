@@ -24,10 +24,14 @@ statement_t::statement_t(sqlite3* db, const std::string& stmt): db{db}
 		BLT_ERROR("Failed to create statement object '{}' cause '{}'", stmt, sqlite3_errmsg(db));
 }
 
-bool statement_t::execute() const
+std::optional<bool> statement_t::execute() const
 {
 	const auto v = sqlite3_step(statement);
-	return v == SQLITE_OK || v == SQLITE_DONE;
+	if (v == SQLITE_ROW)
+		return true;
+	if (v == SQLITE_OK || v == SQLITE_DONE)
+		return false;
+	return {};
 }
 
 statement_t::~statement_t()
