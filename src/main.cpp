@@ -14,6 +14,7 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+#include <asset_loader.h>
 #include <blt/gfx/window.h>
 #include "blt/gfx/renderer/resource_manager.h"
 #include "blt/gfx/renderer/batch_2d_renderer.h"
@@ -58,6 +59,15 @@ void destroy(const blt::gfx::window_data&)
 int main()
 {
     // blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
+
+    asset_loader_t loader{"../res/assets", "1.21.5", "../res/data"};
+    auto result = loader.load_assets();
+
+    if (!result)
+    {
+        BLT_ERROR("Failed to load assets. Reason: {}", result.error().to_string());
+        return 1;
+    }
 
 
 

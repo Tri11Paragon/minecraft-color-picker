@@ -23,6 +23,7 @@
 #include <blt/std/expected.h>
 
 #include <utility>
+#include <blt/std/hashmap.h>
 
 class load_failure_t
 {
@@ -33,7 +34,8 @@ public:
 		ASSET_FOLDER_NOT_FOUND,
 		MODEL_FOLDER_NOT_FOUND,
 		TEXTURE_FOLDER_NOT_FOUND,
-		TAGS_FOLDER_NOT_FOUND
+		TAGS_FOLDER_NOT_FOUND,
+		INCORRECT_NAMESPACE
 	};
 
 	load_failure_t(const type_t type): type{type} // NOLINT
@@ -56,6 +58,8 @@ public:
 				return "Texture folder could not be found";
 			case TAGS_FOLDER_NOT_FOUND:
 				return "Tags folder could not be found";
+			case INCORRECT_NAMESPACE:
+				return "Namespace names of models, textures, or data files do not match!";
 			default:
 				return "Unknown failure type";
 		}
@@ -63,6 +67,23 @@ public:
 
 private:
 	type_t type;
+};
+
+struct namespaced_object
+{
+	std::string namespace_str;
+	std::string key_str;
+};
+
+struct model_data_t
+{
+	std::optional<namespaced_object> parent;
+	std::optional<std::vector<namespaced_object>> textures;
+};
+
+struct namespace_data_t
+{
+	blt::hashmap_t<std::string, model_data_t> models;
 };
 
 struct assets_data_t
