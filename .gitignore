@@ -1,0 +1,5 @@
+cmake-build-*/
+.env
+*.env
+*.sqlite3
+*.sqlite

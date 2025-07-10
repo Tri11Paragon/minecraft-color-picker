@@ -26,12 +26,47 @@ statement_t::statement_t(sqlite3* db, const std::string& stmt): db{db}
 
 bool statement_t::execute() const
 {
-	return sqlite3_step(statement) == SQLITE_OK;
+	const auto v = sqlite3_step(statement);
+	return v == SQLITE_OK || v == SQLITE_DONE;
 }
 
 statement_t::~statement_t()
 {
 	sqlite3_finalize(statement);
+}
+
+statement_t table_builder_t::build()
+{
+	std::string sql = "CREATE TABLE IF NOT EXISTS ";
+	sql += name;
+	sql += " (";
+	for (const auto& [i, column] : blt::enumerate(columns))
+	{
+		sql += column;
+		if (i != columns.size() - 1)
+			sql += ", ";
+	}
+	if (!primary_keys.empty())
+	{
+		sql += ", PRIMARY KEY (";
+		for (const auto& [i, key] : blt::enumerate(primary_keys))
+		{
+			sql += key;
+			if (i != primary_keys.size() - 1)
+				sql += ", ";
+		}
+		sql += ")";
+	}
+	if (!foreign_keys.empty())
+	{
+		for (const auto& [i, key] : blt::enumerate(foreign_keys))
+		{
+			sql += ", FOREIGN KEY (";
+			sql += key.local_name + " REFERENCES " + key.foreign_table + "(" + key.foreign_name + ")";
+		}
+	}
+	sql += ");";
+	return statement_t{db, sql};
 }
 
 database_t::database_t(const std::string& file)
