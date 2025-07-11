@@ -145,7 +145,7 @@ public:
 			return sqlite3_bind_text(statement, col, type, -1, nullptr);
 		} else
 		{
-			return sqlite3_bind_blob64(statement, col, type.data(), type.data(), nullptr);
+			return sqlite3_bind_blob64(statement, col, type.data(), type.size(), nullptr);
 		}
 	}
 

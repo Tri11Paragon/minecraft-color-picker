@@ -15,6 +15,7 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include <asset_loader.h>
+#include <filesystem>
 #include <blt/gfx/window.h>
 #include "blt/gfx/renderer/resource_manager.h"
 #include "blt/gfx/renderer/batch_2d_renderer.h"
@@ -58,6 +59,7 @@ void destroy(const blt::gfx::window_data&)
 
 int main()
 {
+    std::filesystem::remove("1.21.5.assets");
     // blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
 
     asset_loader_t loader{"1.21.5"};
@@ -68,7 +70,7 @@ int main()
         return 1;
     }
 
-    auto asset_data = loader.load_textures();
+    auto& asset_data = loader.load_textures();
 
     return 0;
 }

@@ -88,17 +88,21 @@ struct model_data_t
 struct namespace_data_t
 {
 	blt::hashmap_t<std::string, model_data_t> models;
+	std::string asset_namespace_folder;
+	std::string data_namespace_folder;
+
+	std::string model_folder;
+	std::string tag_folder;
+	std::string texture_folder;
+
+	blt::hashmap_t<std::string, std::string> textures;
 };
 
 struct asset_data_t
 {
 	blt::hashmap_t<std::string, namespace_data_t> json_data;
-	blt::hashmap_t<std::string, std::string> solid_textures_to_load;
-	blt::hashmap_t<std::string, std::string>  non_solid_textures_to_load;
-
-	blt::hashmap_t<std::string, std::string> namespace_asset_folders;
-	blt::hashmap_t<std::string, std::string> namespace_data_folders;
-	blt::hashmap_t<std::string, std::string> namespace_texture_folders;
+	blt::hashmap_t<std::string, blt::hashset_t<std::string>> solid_textures_to_load;
+	blt::hashmap_t<std::string, blt::hashset_t<std::string>>  non_solid_textures_to_load;
 
 	[[nodiscard]] std::vector<namespaced_object> resolve_parents(const namespaced_object& model) const;
 };
@@ -110,9 +114,11 @@ public:
 
 	std::optional<load_failure_t> load_assets(const std::string& asset_folder, const std::optional<std::string>& data_folder = {});
 
-	asset_data_t& load_textures();
+	database_t& load_textures();
 
 private:
+	void process_texture(const statement_t& stmt, const std::string& namespace_str, const std::string& texture);
+
 	asset_data_t data;
 	database_t db;
 	std::string name;

@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 #include <blt/logging/logging.h>
 #include <blt/std/hashmap.h>
+#include <blt/std/ranges.h>
 #include <blt/std/string.h>
 
 using json = nlohmann::json;
@@ -92,10 +93,14 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 		return load_failure_t::TAGS_FOLDER_NOT_FOUND;
 
 	if (data_folder)
-		data.namespace_data_folders[namespace_name] = data_folder->parent_path().string();
+	{
+		data.json_data[namespace_name.string()].tag_folder = tags_folder->string();
+		data.json_data[namespace_name.string()].data_namespace_folder = tags_folder->parent_path().string();
+	}
 
-	data.namespace_asset_folders[namespace_name] = model_folder->parent_path().string();
-	data.namespace_texture_folders[namespace_name] = texture_folder->string();
+	data.json_data[namespace_name.string()].asset_namespace_folder = model_folder->parent_path().string();
+	data.json_data[namespace_name.string()].model_folder = model_folder->string();
+	data.json_data[namespace_name.string()].texture_folder = texture_folder->string();
 
 	BLT_INFO("Loading assets '{}' for namespace '{}'", name, namespace_name.string());
 	if (texture_folder->parent_path().filename() != namespace_name)
@@ -163,6 +168,35 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 			model_data_t{parent, textures.empty() ? std::optional<std::vector<namespaced_object>>{} : std::optional{std::move(textures)}}
 		});
 	}
+	BLT_INFO("Found {} models in namespace {}", data.json_data[namespace_name.string()].models.size(), namespace_name.string());
+
+	for (const auto& entry : std::filesystem::recursive_directory_iterator(*texture_folder / "block"))
+	{
+		if (!entry.path().has_extension())
+			continue;
+		if (!entry.is_regular_file())
+			continue;
+		if (entry.path().extension().compare(".png") != 0 &&
+			entry.path().extension().compare(".jpg") != 0 &&
+			entry.path().extension().compare(".jpeg") != 0 &&
+			entry.path().extension().compare(".bmp") != 0)
+			continue;
+		std::filesystem::path relative_path;
+		{
+			auto p_begin = entry.path().begin();
+			auto p_end = entry.path().end();
+			auto m_begin = texture_folder->begin();
+			while (p_begin != p_end && m_begin != texture_folder->end() && *p_begin == *m_begin)
+			{
+				++p_begin;
+				++m_begin;
+			}
+			for (; p_begin != p_end; ++p_begin)
+				relative_path /= p_begin->stem();
+		}
+		data.json_data[namespace_name.string()].textures[relative_path.string()] = entry.path().string();
+	}
+	BLT_INFO("Found {} textures in namespace {}", data.json_data[namespace_name.string()].textures.size(), namespace_name.string());
 
 	auto& map = data.json_data[namespace_name.string()];
 
@@ -179,7 +213,7 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 				if (model.textures)
 				{
 					for (auto& texture : *model.textures)
-						data.solid_textures_to_load[texture.namespace_str] = texture.key_str;
+						data.solid_textures_to_load[texture.namespace_str].insert(texture.key_str);
 				}
 				solid = true;
 				break;
@@ -190,7 +224,7 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 			if (model.textures)
 			{
 				for (auto& texture : *model.textures)
-					data.non_solid_textures_to_load[texture.namespace_str] = texture.key_str;
+					data.non_solid_textures_to_load[texture.namespace_str].insert(texture.key_str);
 			}
 		}
 	}
@@ -198,24 +232,59 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 	return {};
 }
 
-asset_data_t& asset_loader_t::load_textures()
+database_t& asset_loader_t::load_textures()
 {
 	auto texture_table = db.builder().create_table("solid_textures");
 	texture_table.with_column<std::string>("namespace").primary_key();
 	texture_table.with_column<std::string>("name").primary_key();
-	texture_table.with_column<blt::u32>("width").not_null();
-	texture_table.with_column<blt::u32>("height").not_null();
+	texture_table.with_column<blt::i32>("width").not_null();
+	texture_table.with_column<blt::i32>("height").not_null();
 	texture_table.with_column<std::byte*>("data").not_null();
 	texture_table.build().execute();
 
-	for (const auto& [namespace_str, texture] : data.solid_textures_to_load)
-	{
-		auto texture_path = std::filesystem::path(data.namespace_texture_folders.at(namespace_str));
-		texture_path /= texture;
+	auto non_texture_table = db.builder().create_table("non_solid_textures");
+	non_texture_table.with_column<std::string>("namespace").primary_key();
+	non_texture_table.with_column<std::string>("name").primary_key();
+	non_texture_table.with_column<blt::i32>("width").not_null();
+	non_texture_table.with_column<blt::i32>("height").not_null();
+	non_texture_table.with_column<std::byte*>("data").not_null();
+	non_texture_table.build().execute();
 
+	const static auto insert_solid_sql = "INSERT INTO solid_textures VALUES (?, ?, ?, ?, ?)";
+	const static auto insert_non_solid_sql = "INSERT INTO non_solid_textures VALUES (?, ?, ?, ?, ?)";
+	const auto insert_solid_stmt = db.prepare(insert_solid_sql);
+	const auto insert_non_solid_stmt = db.prepare(insert_non_solid_sql);
+
+	for (const auto& [namespace_str, textures] : data.solid_textures_to_load)
+	{
+		for (const auto& texture : textures)
+			process_texture(insert_solid_stmt, namespace_str, texture);
 	}
 
-	return data;
+	for (const auto& [namespace_str, textures] : data.non_solid_textures_to_load)
+	{
+		for (const auto& texture : textures)
+			process_texture(insert_non_solid_stmt, namespace_str, texture);
+	}
+
+	return db;
+}
+
+void asset_loader_t::process_texture(const statement_t& stmt, const std::string& namespace_str, const std::string& texture)
+{
+	const auto texture_path = data.json_data[namespace_str].textures[texture];
+	if (!std::filesystem::exists(texture_path))
+		return;
+	int width, height, channels;
+	const auto data = stbi_load(texture_path.c_str(), &width, &height, &channels, 4);
+	if (data == nullptr)
+		return;
+	stmt.bind().bind_all(namespace_str, texture, width, height, blt::span{data, static_cast<blt::size_t>(width * height * 4)});
+	if (!stmt.execute())
+	{
+		BLT_WARN("Failed to insert texture '{}:{}' into database. Error: '{}'", namespace_str, texture, db.get_error());
+	}
+	stbi_image_free(data);
 }
 
 std::vector<namespaced_object> asset_data_t::resolve_parents(const namespaced_object& model) const
