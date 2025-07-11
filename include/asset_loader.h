@@ -30,7 +30,6 @@ class load_failure_t
 public:
 	enum type_t
 	{
-		ASSETS_ALREADY_LOADED,
 		ASSET_FOLDER_NOT_FOUND,
 		MODEL_FOLDER_NOT_FOUND,
 		TEXTURE_FOLDER_NOT_FOUND,
@@ -73,6 +72,11 @@ struct namespaced_object
 {
 	std::string namespace_str;
 	std::string key_str;
+
+	[[nodiscard]] std::string string() const
+	{
+		return namespace_str + ':' + key_str;
+	}
 };
 
 struct model_data_t
@@ -86,34 +90,32 @@ struct namespace_data_t
 	blt::hashmap_t<std::string, model_data_t> models;
 };
 
-struct assets_data_t
+struct asset_data_t
 {
-	database_t db;
-	std::string asset_folder;
-	std::optional<std::string> data_folder;
-	std::string name;
+	blt::hashmap_t<std::string, namespace_data_t> json_data;
+	blt::hashmap_t<std::string, std::string> solid_textures_to_load;
+	blt::hashmap_t<std::string, std::string>  non_solid_textures_to_load;
 
-	assets_data_t(database_t&& db, std::string asset_folder, std::optional<std::string> data_folder, std::string name) : db{std::move(db)},
-																														asset_folder{
-																															std::move(asset_folder)
-																														},
-																														data_folder{
-																															std::move(data_folder)
-																														}, name{std::move(name)}
-	{}
+	blt::hashmap_t<std::string, std::string> namespace_asset_folders;
+	blt::hashmap_t<std::string, std::string> namespace_data_folders;
+	blt::hashmap_t<std::string, std::string> namespace_texture_folders;
+
+	[[nodiscard]] std::vector<namespaced_object> resolve_parents(const namespaced_object& model) const;
 };
 
 class asset_loader_t
 {
 public:
-	asset_loader_t(std::string folder, std::string name, std::optional<std::string> data_folder = std::nullopt);
+	explicit asset_loader_t(std::string name);
 
-	blt::expected<assets_data_t, load_failure_t> load_assets();
+	std::optional<load_failure_t> load_assets(const std::string& asset_folder, const std::optional<std::string>& data_folder = {});
+
+	asset_data_t& load_textures();
 
 private:
-	// feels like a weird hack?
-	bool contains = true;
-	assets_data_t data;
+	asset_data_t data;
+	database_t db;
+	std::string name;
 };
 
 #endif //ASSET_LOADER_H

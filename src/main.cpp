@@ -60,16 +60,15 @@ int main()
 {
     // blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
 
-    asset_loader_t loader{"../res/assets", "1.21.5", "../res/data"};
-    auto result = loader.load_assets();
+    asset_loader_t loader{"1.21.5"};
 
-    if (!result)
+    if (const auto result = loader.load_assets("../res/assets", "../res/data"))
     {
-        BLT_ERROR("Failed to load assets. Reason: {}", result.error().to_string());
+        BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
         return 1;
     }
 
-
+    auto asset_data = loader.load_textures();
 
     return 0;
 }

@@ -20,39 +20,30 @@
 #include <utility>
 #include <filesystem>
 #include <fstream>
+#include <blt/gfx/stb/stb_image.h>
 #include <nlohmann/json.hpp>
 #include <blt/logging/logging.h>
 #include <blt/std/hashmap.h>
 #include <blt/std/string.h>
+
 using json = nlohmann::json;
 
-asset_loader_t::asset_loader_t(std::string asset_folder, std::string name, std::optional<std::string> data_folder): data{
-	database_t{name + ".assets"}, std::move(asset_folder), std::move(data_folder), std::move(name)
-}
+inline namespaced_object empty_object{"NULL", "NULL"};
+
+asset_loader_t::asset_loader_t(std::string name):
+	db{name + ".assets"}, name{std::move(name)}
 {}
 
-blt::expected<assets_data_t, load_failure_t> asset_loader_t::load_assets()
+std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& asset_folder, const std::optional<std::string>& data_folder)
 {
-	if (!contains)
-		return blt::unexpected(load_failure_t::ASSETS_ALREADY_LOADED);
-	if (!std::filesystem::exists(data.asset_folder))
-		return blt::unexpected(load_failure_t::ASSET_FOLDER_NOT_FOUND);
-
-	/*
-	 * Tables
-	 */
-	auto texture_table = data.db.builder().create_table("textures");
-	texture_table.with_column<std::string>("name").primary_key();
-	texture_table.with_column<blt::u32>("width").not_null();
-	texture_table.with_column<blt::u32>("height").not_null();
-	texture_table.with_column<std::byte*>("data").not_null();
-	texture_table.build().execute();
+	if (!std::filesystem::exists(asset_folder))
+		return load_failure_t::ASSET_FOLDER_NOT_FOUND;
 
 	std::optional<std::filesystem::path> model_folder;
 	std::optional<std::filesystem::path> texture_folder;
 	std::optional<std::filesystem::path> tags_folder;
 
-	for (const auto& entry : std::filesystem::recursive_directory_iterator(data.asset_folder))
+	for (const auto& entry : std::filesystem::recursive_directory_iterator(asset_folder))
 	{
 		if (!entry.is_directory())
 			continue;
@@ -67,22 +58,22 @@ blt::expected<assets_data_t, load_failure_t> asset_loader_t::load_assets()
 	}
 
 	if (!model_folder)
-		return blt::unexpected(load_failure_t::MODEL_FOLDER_NOT_FOUND);
+		return load_failure_t::MODEL_FOLDER_NOT_FOUND;
 
 	if (!texture_folder)
-		return blt::unexpected(load_failure_t::TEXTURE_FOLDER_NOT_FOUND);
+		return load_failure_t::TEXTURE_FOLDER_NOT_FOUND;
 
 	if (!exists(*model_folder / "block"))
-		return blt::unexpected(load_failure_t::MODEL_FOLDER_NOT_FOUND);
+		return load_failure_t::MODEL_FOLDER_NOT_FOUND;
 
 	if (!exists(*texture_folder / "block"))
-		return blt::unexpected(load_failure_t::TEXTURE_FOLDER_NOT_FOUND);
+		return load_failure_t::TEXTURE_FOLDER_NOT_FOUND;
 
 	const auto namespace_name = model_folder->parent_path().filename();
 
-	if (data.data_folder)
+	if (data_folder)
 	{
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(*data.data_folder))
+		for (const auto& entry : std::filesystem::recursive_directory_iterator(*data_folder))
 		{
 			if (!entry.is_directory())
 				continue;
@@ -94,19 +85,25 @@ blt::expected<assets_data_t, load_failure_t> asset_loader_t::load_assets()
 		}
 	}
 
-	if (data.data_folder && !tags_folder)
-		return blt::unexpected(load_failure_t::TAGS_FOLDER_NOT_FOUND);
+	if (data_folder && !tags_folder)
+		return load_failure_t::TAGS_FOLDER_NOT_FOUND;
 
-	if (data.data_folder && !exists(*tags_folder / "block"))
-		return blt::unexpected(load_failure_t::TAGS_FOLDER_NOT_FOUND);
+	if (data_folder && !exists(*tags_folder / "block"))
+		return load_failure_t::TAGS_FOLDER_NOT_FOUND;
 
-	BLT_INFO("Loading assets '{}' for namespace '{}'", data.name, namespace_name.string());
+	if (data_folder)
+		data.namespace_data_folders[namespace_name] = data_folder->parent_path().string();
+
+	data.namespace_asset_folders[namespace_name] = model_folder->parent_path().string();
+	data.namespace_texture_folders[namespace_name] = texture_folder->string();
+
+	BLT_INFO("Loading assets '{}' for namespace '{}'", name, namespace_name.string());
 	if (texture_folder->parent_path().filename() != namespace_name)
-		return blt::unexpected(load_failure_t::INCORRECT_NAMESPACE);
+		return load_failure_t::INCORRECT_NAMESPACE;
 
-	blt::hashmap_t<std::string, namespace_data_t> namespaced_models;
+	blt::hashmap_t<std::string, namespace_data_t>& namespaced_models = data.json_data;
 
-	for (auto entry : std::filesystem::recursive_directory_iterator(*model_folder / "block"))
+	for (const auto& entry : std::filesystem::recursive_directory_iterator(*model_folder / "block"))
 	{
 		if (!entry.path().has_extension())
 			continue;
@@ -162,10 +159,77 @@ blt::expected<assets_data_t, load_failure_t> asset_loader_t::load_assets()
 		if (!namespaced_models.contains(namespace_name.string()))
 			namespaced_models[namespace_name.string()] = {};
 		namespaced_models[namespace_name.string()].models.insert({
-			relative_path.string(), model_data_t{parent, textures.empty() ? std::nullopt : std::move(textures)}
+			relative_path.string(),
+			model_data_t{parent, textures.empty() ? std::optional<std::vector<namespaced_object>>{} : std::optional{std::move(textures)}}
 		});
 	}
 
-	contains = false;
-	return std::move(data);
+	auto& map = data.json_data[namespace_name.string()];
+
+	std::vector<namespaced_object> textures_to_load;
+
+	for (auto& [name, model] : map.models)
+	{
+		auto parents = data.resolve_parents(model.parent.value_or(empty_object));
+		bool solid = false;
+		for (const auto& [namespace_str, key_str] : parents)
+		{
+			if (namespace_str == "minecraft" && key_str == "block/cube")
+			{
+				if (model.textures)
+				{
+					for (auto& texture : *model.textures)
+						data.solid_textures_to_load[texture.namespace_str] = texture.key_str;
+				}
+				solid = true;
+				break;
+			}
+		}
+		if (!solid)
+		{
+			if (model.textures)
+			{
+				for (auto& texture : *model.textures)
+					data.non_solid_textures_to_load[texture.namespace_str] = texture.key_str;
+			}
+		}
+	}
+
+	return {};
+}
+
+asset_data_t& asset_loader_t::load_textures()
+{
+	auto texture_table = db.builder().create_table("solid_textures");
+	texture_table.with_column<std::string>("namespace").primary_key();
+	texture_table.with_column<std::string>("name").primary_key();
+	texture_table.with_column<blt::u32>("width").not_null();
+	texture_table.with_column<blt::u32>("height").not_null();
+	texture_table.with_column<std::byte*>("data").not_null();
+	texture_table.build().execute();
+
+	for (const auto& [namespace_str, texture] : data.solid_textures_to_load)
+	{
+		auto texture_path = std::filesystem::path(data.namespace_texture_folders.at(namespace_str));
+		texture_path /= texture;
+
+	}
+
+	return data;
+}
+
+std::vector<namespaced_object> asset_data_t::resolve_parents(const namespaced_object& model) const
+{
+	std::vector<namespaced_object> parents;
+	auto current_parent = model;
+	while (json_data.contains(current_parent.namespace_str) && json_data.at(current_parent.namespace_str).models.contains(current_parent.key_str))
+	{
+		const auto& [parent, textures] = json_data.at(current_parent.namespace_str).models.at(current_parent.key_str);
+		parents.push_back(current_parent);
+		if (parent)
+			current_parent = *parent;
+		else
+			break;
+	}
+	return parents;
 }

@@ -250,6 +250,13 @@ public:
 		return *this;
 	}
 
+	table_column_builder_t& auto_increment()
+	{
+		primary_key();
+		attributes.push_back("AUTOINCREMENT");
+		return *this;
+	}
+
 	table_column_builder_t& unique()
 	{
 		attributes.emplace_back("UNIQUE");
