@@ -66,7 +66,7 @@ statement_t table_builder_t::build()
 		for (const auto& [i, key] : blt::enumerate(foreign_keys))
 		{
 			sql += ", FOREIGN KEY (";
-			sql += key.local_name + " REFERENCES " + key.foreign_table + "(" + key.foreign_name + ")";
+			sql += key.local_name + ") REFERENCES " + key.foreign_table + "(" + key.foreign_name + ")";
 		}
 	}
 	sql += ");";

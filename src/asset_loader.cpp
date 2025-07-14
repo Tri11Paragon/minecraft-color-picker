@@ -31,8 +31,63 @@ using json = nlohmann::json;
 
 inline namespaced_object empty_object{"NULL", "NULL"};
 
-asset_loader_t::asset_loader_t(std::string name):
-	db{name + ".assets"}, name{std::move(name)}
+struct search_for_t
+{
+	search_for_t(const json& obj, std::string search_tag): search_tag{std::move(search_tag)}
+	{
+		objects.push_back(obj);
+	}
+
+	std::optional<std::string> next()
+	{
+		while (true)
+		{
+			if (objects.empty())
+				return {};
+			if (!current_iter)
+				current_iter = objects.front().items().begin();
+
+			while (true)
+			{
+				if (iter() == objects.front().items().end())
+				{
+					objects.erase(objects.begin());
+					current_iter = {};
+					break;
+				}
+				auto value = iter().value();
+				if (value.is_array() || value.is_object())
+				{
+					const auto distance = std::distance(objects.front().items().begin(), iter());
+					objects.push_back(value);
+					current_iter = objects.front().items().begin();
+					std::advance(*current_iter, distance + 1);
+					continue;
+				}
+				if (iter().key() != search_tag)
+				{
+					++*current_iter;
+					continue;
+				}
+				auto str = iter().value().get<std::string>();
+				++*current_iter;
+				return str;
+			}
+		}
+	}
+
+private:
+	nlohmann::detail::iteration_proxy_value<json::iterator>& iter()
+	{
+		return *current_iter;
+	}
+
+	std::vector<json> objects;
+	std::optional<nlohmann::detail::iteration_proxy_value<json::iterator>> current_iter;
+	std::string search_tag;
+};
+
+asset_loader_t::asset_loader_t(std::string name): db{name + ".assets"}, name{std::move(name)}
 {}
 
 std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& asset_folder, const std::optional<std::string>& data_folder)
@@ -43,6 +98,7 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 	std::optional<std::filesystem::path> model_folder;
 	std::optional<std::filesystem::path> texture_folder;
 	std::optional<std::filesystem::path> tags_folder;
+	std::optional<std::filesystem::path> blockstate_folder;
 
 	for (const auto& entry : std::filesystem::recursive_directory_iterator(asset_folder))
 	{
@@ -55,6 +111,10 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 		if (entry.path().filename().compare("textures") == 0)
 		{
 			texture_folder = entry.path();
+		}
+		if (data_folder && entry.path().filename().compare("blockstates") == 0)
+		{
+			blockstate_folder = entry.path();
 		}
 	}
 
@@ -91,6 +151,9 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 
 	if (data_folder && !exists(*tags_folder / "block"))
 		return load_failure_t::TAGS_FOLDER_NOT_FOUND;
+
+	if (data_folder && !blockstate_folder)
+		return load_failure_t::TAGS_BLOCKSTATES_NOT_FOUND;
 
 	if (data_folder)
 	{
@@ -176,10 +239,13 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 			continue;
 		if (!entry.is_regular_file())
 			continue;
-		if (entry.path().extension().compare(".png") != 0 &&
-			entry.path().extension().compare(".jpg") != 0 &&
-			entry.path().extension().compare(".jpeg") != 0 &&
-			entry.path().extension().compare(".bmp") != 0)
+		if (entry.path().extension().compare(".png") != 0 && entry.path().extension().compare(".jpg") != 0 && entry.path().extension().
+																													compare(".jpeg") != 0 && entry.
+																																			path().
+																																			extension()
+																																			.compare(
+																																				".bmp")
+			!= 0)
 			continue;
 		std::filesystem::path relative_path;
 		{
@@ -199,6 +265,65 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 	BLT_INFO("Found {} textures in namespace {}", data.json_data[namespace_name.string()].textures.size(), namespace_name.string());
 
 	auto& map = data.json_data[namespace_name.string()];
+
+	if (data_folder)
+	{
+		for (const auto& entry : std::filesystem::recursive_directory_iterator{*tags_folder / "block"})
+		{
+			if (!entry.path().has_extension())
+				continue;
+			if (!entry.is_regular_file())
+				continue;
+			if (entry.path().extension().compare(".json") != 0)
+				continue;
+			std::filesystem::path relative_path;
+			{
+				auto p_begin = entry.path().begin();
+				auto p_end = entry.path().end();
+				auto m_begin = tags_folder->begin();
+				while (p_begin != p_end && m_begin != tags_folder->end() && *p_begin == *m_begin)
+				{
+					++p_begin;
+					++m_begin;
+				}
+				for (; p_begin != p_end; ++p_begin)
+					relative_path /= p_begin->stem();
+			}
+			std::ifstream json_file{entry.path()};
+			json jdata = json::parse(json_file);
+			if (!jdata.contains("values"))
+				return load_failure_t{load_failure_t::INCORRECT_TAG_FILE, "Failed at file: " + entry.path().string()};
+
+			auto& tag_value_list = data.json_data[namespace_name.string()].tags[relative_path.string()].list;
+
+			for (const auto& v : jdata["values"])
+				tag_value_list.insert(v.get<std::string>());
+		}
+
+		// blockstate folder consists of only json files
+		for (const auto& entry : std::filesystem::recursive_directory_iterator{*blockstate_folder})
+		{
+			if (!entry.is_regular_file())
+				continue;
+			if (!(entry.path().has_extension() && entry.path().extension().compare("json")))
+				continue;
+			auto block_name = entry.path().stem().string();
+
+			std::ifstream json_file(entry.path());
+			json jdata = json::parse(json_file);
+
+			search_for_t search{jdata, "model"};
+			while (auto next = search.next())
+			{
+				const auto& model = *next;
+				const auto parts = blt::string::split(model, ':');
+				if (parts.size() == 1)
+					data.json_data[namespace_name.string()].tags[block_name].models[namespace_name.string()].insert(parts[0]);
+				else
+					data.json_data[namespace_name.string()].tags[block_name].models[parts[0]].insert(parts[1]);
+			}
+		}
+	}
 
 	std::vector<namespaced_object> textures_to_load;
 
@@ -265,6 +390,45 @@ database_t& asset_loader_t::load_textures()
 	{
 		for (const auto& texture : textures)
 			process_texture(insert_non_solid_stmt, namespace_str, texture);
+	}
+
+	auto tag_table = db.builder().create_table("tags");
+	tag_table.with_column<std::string>("namespace").primary_key();
+	tag_table.with_column<std::string>("tag").primary_key();
+	tag_table.with_column<std::string>("block").primary_key();
+	tag_table.build().execute();
+
+	auto tag_models = db.builder().create_table("tag_models");
+	tag_models.with_column<std::string>("namespace").primary_key().foreign_key("tags", "namespace");
+	tag_models.with_column<std::string>("tag").primary_key().foreign_key("tags", "tag");
+	tag_models.with_column<std::string>("model_namespace").primary_key();
+	tag_models.with_column<std::string>("model").primary_key();
+	tag_models.build().execute();
+
+	const static auto insert_tag_sql = "INSERT INTO tags VALUES (?, ?, ?)";
+	const static auto insert_tag_model_sql = "INSERT INTO tag_models VALUES (?, ?, ?, ?)";
+	const auto insert_tag_stmt = db.prepare(insert_tag_sql);
+	const auto insert_tag_model_stmt = db.prepare(insert_tag_model_sql);
+	for (const auto& [namespace_str, jdata] : data.json_data)
+	{
+		for (const auto& [tag_name, tag_data] : jdata.tags)
+		{
+			for (const auto& block_tag : tag_data.list)
+			{
+				insert_tag_stmt.bind().bind_all(namespace_str, tag_name, block_tag);
+				if (!insert_tag_stmt.execute())
+					BLT_WARN("[Tag List] Unable to insert {} into {}:{} reason '{}'", block_tag, namespace_str, tag_name, db.get_error());
+			}
+			for (const auto& [model_namespace, model_list] : tag_data.models)
+			{
+				for (const auto& model : model_list)
+				{
+					insert_tag_model_stmt.bind().bind_all(namespace_str, tag_name, model_namespace, model);
+					if (!insert_tag_model_stmt.execute())
+						BLT_WARN("[Model List] Unable to insert {}:{} into {}:{} reason '{}'", namespace_str, tag_name, model_namespace, model, db.get_error());
+				}
+			}
+		}
 	}
 
 	return db;
