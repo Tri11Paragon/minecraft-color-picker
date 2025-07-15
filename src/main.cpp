@@ -75,6 +75,7 @@ void use_database(database_t& db)
     const auto difference = compare.compare(s1, s2);
 
     BLT_TRACE("{}", difference);
+
 }
 
 int main()

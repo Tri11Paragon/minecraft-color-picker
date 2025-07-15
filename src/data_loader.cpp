@@ -23,7 +23,7 @@ sample_sequence_t make_sequence(std::initializer_list<blt::vec3> list)
 {
 	sequence_t sequence{*list.begin()};
 	for (const auto& [i, value] : blt::enumerate(list).skip(1))
-		sequence = sequence_t{value, sequence};
+		sequence = sequence_t{value, std::move(sequence)};
 	return sequence;
 }
 
@@ -61,7 +61,7 @@ assets_t data_loader_t::load() const
 
 struct sample_pair
 {
-	sample_pair(sample_sequence_t s1, sample_sequence_t s2): sample1{s1}, sample2{s2}
+	sample_pair(sample_sequence_t s1, sample_sequence_t s2): sample1{std::move(s1)}, sample2{std::move(s2)}
 	{}
 
 	[[nodiscard]] bool has_value() const
@@ -89,19 +89,21 @@ struct sample_pair
 sampler_one_point_t::sampler_one_point_t(const image_t& image)
 {
 	float alpha = 0;
+	average = {};
 	for (blt::i32 y = 0; y < image.height; y++)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const auto a = image.data[y * image.width + x + 3];
-			average += blt::vec3{
-				image.data[y * image.width + x + 0], image.data[y * image.width + x + 1], image.data[y * image.width + x + 2]
-			} * a;
+			const auto a = image.data[(y * image.width + x) * 4 + 3];
+			average[0] += image.data[(y * image.width + x) * 4 + 0] * a;
+			average[1] += image.data[(y * image.width + x) * 4 + 1] * a;
+			average[2] += image.data[(y * image.width + x) * 4 + 2] * a;
 			alpha += a;
 		}
 	}
 	if (alpha != 0)
-		average = average / (alpha / 3);
+		average = average / alpha;
+	BLT_TRACE("Average: {}", average);
 }
 
 blt::vec3 comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)

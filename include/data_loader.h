@@ -36,12 +36,14 @@ struct sequence_t
 	explicit sequence_t(const Value& value): m_value{value}
 	{}
 
-	sequence_t(const Value& value, const sequence_t& next): m_next{next}, m_value{value}
+	sequence_t(const Value& value, sequence_t next): m_value{value}, m_next{std::make_unique<sequence_t>(std::move(next))}
 	{}
 
 	std::optional<sequence_t> next()
 	{
-		return m_next;
+		auto result = m_next == nullptr ? std::optional<sequence_t>{} : std::optional<sequence_t>{std::move(*m_next)};
+		m_next = nullptr;
+		return result;
 	}
 
 	const Value& value()
@@ -51,7 +53,7 @@ struct sequence_t
 
 private:
 	Value m_value;
-	std::optional<sequence_t> m_next;
+	std::unique_ptr<sequence_t> m_next = nullptr;
 };
 
 using sample_sequence_t = sequence_t<blt::vec3>;
