@@ -28,12 +28,39 @@ database_t load_database(const std::filesystem::path& path);
 
 struct image_t;
 
-struct sampler_interface_t
+template<typename Value>
+struct sequence_t
 {
-	virtual void clear()
+	sequence_t() = default;
+
+	explicit sequence_t(const Value& value): m_value{value}
 	{}
 
-	virtual std::optional<blt::vec3> get_sample() = 0;
+	sequence_t(const Value& value, const sequence_t& next): m_next{next}, m_value{value}
+	{}
+
+	std::optional<sequence_t> next()
+	{
+		return m_next;
+	}
+
+	const Value& value()
+	{
+		return m_value;
+	}
+
+private:
+	Value m_value;
+	std::optional<sequence_t> m_next;
+};
+
+using sample_sequence_t = sequence_t<blt::vec3>;
+
+sample_sequence_t make_sequence(std::initializer_list<blt::vec3> list);
+
+struct sampler_interface_t
+{
+	virtual sample_sequence_t get_sampler() = 0;
 
 	virtual ~sampler_interface_t() = default;
 };
@@ -43,9 +70,9 @@ struct sampler_single_value_t final : sampler_interface_t
 	explicit sampler_single_value_t(const blt::vec3 value): value{value}
 	{}
 
-	std::optional<blt::vec3> get_sample() override
+	sample_sequence_t get_sampler() override
 	{
-		return value;
+		return sample_sequence_t{value};
 	}
 
 	blt::vec3 value;
@@ -55,20 +82,10 @@ struct sampler_one_point_t final : sampler_interface_t
 {
 	explicit sampler_one_point_t(const image_t& image);
 
-	void clear() override
+	sample_sequence_t get_sampler() override
 	{
-		found = false;
+		return sample_sequence_t{average};
 	}
-
-	std::optional<blt::vec3> get_sample() override
-	{
-		if (found)
-			return {};
-		found = true;
-		return average;
-	}
-
-	bool found = false;
 	blt::vec3 average;
 };
 

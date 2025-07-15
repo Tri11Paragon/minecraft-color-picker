@@ -19,6 +19,14 @@
 #include <data_loader.h>
 #include <blt/logging/logging.h>
 
+sample_sequence_t make_sequence(std::initializer_list<blt::vec3> list)
+{
+	sequence_t sequence{*list.begin()};
+	for (const auto& [i, value] : blt::enumerate(list).skip(1))
+		sequence = sequence_t{value, sequence};
+	return sequence;
+}
+
 database_t load_database(const std::filesystem::path& path)
 {
 	database_t db{path.string()};
@@ -53,7 +61,7 @@ assets_t data_loader_t::load() const
 
 struct sample_pair
 {
-	sample_pair(sampler_interface_t& s1, sampler_interface_t& s2): sample1{s1.get_sample()}, sample2{s2.get_sample()}
+	sample_pair(sample_sequence_t s1, sample_sequence_t s2): sample1{s1}, sample2{s2}
 	{}
 
 	[[nodiscard]] bool has_value() const
@@ -66,8 +74,16 @@ struct sample_pair
 		return has_value();
 	}
 
-	std::optional<blt::vec3> sample1;
-	std::optional<blt::vec3> sample2;
+	std::pair<blt::vec3, blt::vec3> next()
+	{
+		auto pair = std::pair{sample1->value(), sample2->value()};
+		sample1 = sample1->next();
+		sample2 = sample2->next();
+		return pair;
+	}
+
+	std::optional<sample_sequence_t> sample1;
+	std::optional<sample_sequence_t> sample2;
 };
 
 sampler_one_point_t::sampler_one_point_t(const image_t& image)
@@ -90,13 +106,12 @@ sampler_one_point_t::sampler_one_point_t(const image_t& image)
 
 blt::vec3 comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
 {
-	s1.clear();
-	s2.clear();
+	sample_pair seq{s1.get_sampler(), s2.get_sampler()};
 	blt::vec3 total{};
-	while (auto sampler = sample_pair{s1, s2})
+	while (seq)
 	{
-		auto [sample1, sample2] = sampler;
-		const auto dif = *sample1 - *sample2;
+		auto [sample1, sample2] = seq.next();
+		const auto dif = sample1 - sample2;
 		total += dif * dif;
 	}
 	return {std::sqrt(total[0]), std::sqrt(total[1]), std::sqrt(total[2])};
