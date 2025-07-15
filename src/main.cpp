@@ -22,6 +22,8 @@
 #include "blt/gfx/renderer/camera.h"
 #include <imgui.h>
 #include <sql.h>
+#include <data_loader.h>
+#include <blt/math/log_util.h>
 
 blt::gfx::matrix_state_manager global_matrices;
 blt::gfx::resource_manager resources;
@@ -57,20 +59,47 @@ void destroy(const blt::gfx::window_data&)
     blt::gfx::cleanup();
 }
 
+void use_database(database_t& db)
+{
+    const data_loader_t data{db};
+    auto assets = data.load();
+
+    const auto i1 = assets.images["minecraft"]["block/redstone_block"];
+    const auto i2 = assets.images["minecraft"]["block/red_wool"];
+
+    auto s1 = i1.get_default_sampler();
+    auto s2 = i2.get_default_sampler();
+
+    comparator_euclidean_t compare{};
+
+    const auto difference = compare.compare(s1, s2);
+
+    BLT_TRACE("{}", difference);
+}
+
 int main()
 {
-    std::filesystem::remove("1.21.5.assets");
+    // std::filesystem::remove("1.21.5.assets");
     // blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
 
-    asset_loader_t loader{"1.21.5"};
-
-    if (const auto result = loader.load_assets("../res/assets", "../res/data"))
+    if (!std::filesystem::exists("1.21.5.assets"))
     {
-        BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
-        return 1;
+        asset_loader_t loader{"1.21.5"};
+
+        if (const auto result = loader.load_assets("../res/assets", "../res/data"))
+        {
+            BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
+            return 1;
+        }
+
+        auto& db = loader.load_textures();
+        use_database(db);
+    } else {
+        auto db = load_database("1.21.5.assets");
+        use_database(db);
     }
 
-    auto& asset_data = loader.load_textures();
+
 
     return 0;
 }

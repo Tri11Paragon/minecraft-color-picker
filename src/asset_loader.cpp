@@ -359,12 +359,13 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 
 database_t& asset_loader_t::load_textures()
 {
+	BLT_INFO("[Phase 2] Loading Textures");
 	auto texture_table = db.builder().create_table("solid_textures");
 	texture_table.with_column<std::string>("namespace").primary_key();
 	texture_table.with_column<std::string>("name").primary_key();
 	texture_table.with_column<blt::i32>("width").not_null();
 	texture_table.with_column<blt::i32>("height").not_null();
-	texture_table.with_column<std::byte*>("data").not_null();
+	texture_table.with_column<const std::byte*>("data").not_null();
 	texture_table.build().execute();
 
 	auto non_texture_table = db.builder().create_table("non_solid_textures");
@@ -372,7 +373,7 @@ database_t& asset_loader_t::load_textures()
 	non_texture_table.with_column<std::string>("name").primary_key();
 	non_texture_table.with_column<blt::i32>("width").not_null();
 	non_texture_table.with_column<blt::i32>("height").not_null();
-	non_texture_table.with_column<std::byte*>("data").not_null();
+	non_texture_table.with_column<const std::byte*>("data").not_null();
 	non_texture_table.build().execute();
 
 	const static auto insert_solid_sql = "INSERT INTO solid_textures VALUES (?, ?, ?, ?, ?)";
@@ -384,12 +385,14 @@ database_t& asset_loader_t::load_textures()
 	{
 		for (const auto& texture : textures)
 			process_texture(insert_solid_stmt, namespace_str, texture);
+		BLT_INFO("[Phase 2] Loaded {} solid textures for namespace {}", textures.size(), namespace_str);
 	}
 
 	for (const auto& [namespace_str, textures] : data.non_solid_textures_to_load)
 	{
 		for (const auto& texture : textures)
 			process_texture(insert_non_solid_stmt, namespace_str, texture);
+		BLT_INFO("[Phase 2] Loaded {} non-solid textures for namespace {}", textures.size(), namespace_str);
 	}
 
 	auto tag_table = db.builder().create_table("tags");
@@ -409,26 +412,38 @@ database_t& asset_loader_t::load_textures()
 	const static auto insert_tag_model_sql = "INSERT INTO tag_models VALUES (?, ?, ?, ?)";
 	const auto insert_tag_stmt = db.prepare(insert_tag_sql);
 	const auto insert_tag_model_stmt = db.prepare(insert_tag_model_sql);
+
+	BLT_DEBUG("[Phase 2] Begin tag storage");
+	size_t tag_list_count = 0;
+	size_t tag_model_count = 0;
 	for (const auto& [namespace_str, jdata] : data.json_data)
 	{
 		for (const auto& [tag_name, tag_data] : jdata.tags)
 		{
+			if (tag_data.list.empty() && tag_data.models.empty())
+				continue;
 			for (const auto& block_tag : tag_data.list)
 			{
+				++tag_list_count;
 				insert_tag_stmt.bind().bind_all(namespace_str, tag_name, block_tag);
 				if (!insert_tag_stmt.execute())
 					BLT_WARN("[Tag List] Unable to insert {} into {}:{} reason '{}'", block_tag, namespace_str, tag_name, db.get_error());
 			}
+			BLT_DEBUG("[Phase 2] Loaded {} blocks to tag {}:{}", tag_data.list.size(), namespace_str, tag_name);
 			for (const auto& [model_namespace, model_list] : tag_data.models)
 			{
 				for (const auto& model : model_list)
 				{
+					++tag_model_count;
 					insert_tag_model_stmt.bind().bind_all(namespace_str, tag_name, model_namespace, model);
 					if (!insert_tag_model_stmt.execute())
-						BLT_WARN("[Model List] Unable to insert {}:{} into {}:{} reason '{}'", namespace_str, tag_name, model_namespace, model, db.get_error());
+						BLT_WARN("[Model List] Unable to insert {}:{} into {}:{} reason '{}'", namespace_str, tag_name, model_namespace, model,
+							db.get_error());
 				}
 			}
 		}
+		BLT_INFO("[Phase 2] Loaded {} blocks to tags.", tag_list_count);
+		BLT_INFO("[Phase 2] Loaded {} models to tags.", tag_model_count);
 	}
 
 	return db;
@@ -440,10 +455,12 @@ void asset_loader_t::process_texture(const statement_t& stmt, const std::string&
 	if (!std::filesystem::exists(texture_path))
 		return;
 	int width, height, channels;
-	const auto data = stbi_load(texture_path.c_str(), &width, &height, &channels, 4);
+	const auto data = stbi_loadf(texture_path.c_str(), &width, &height, &channels, 4);
 	if (data == nullptr)
 		return;
-	stmt.bind().bind_all(namespace_str, texture, width, height, blt::span{data, static_cast<blt::size_t>(width * height * 4)});
+	stmt.bind().bind_all(namespace_str, texture, width, height, blt::span{
+							reinterpret_cast<char*>(data), static_cast<blt::size_t>(width * height * 4) * sizeof(float)
+						});
 	if (!stmt.execute())
 	{
 		BLT_WARN("Failed to insert texture '{}:{}' into database. Error: '{}'", namespace_str, texture, db.get_error());

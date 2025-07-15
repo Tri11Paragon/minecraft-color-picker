@@ -82,10 +82,10 @@ public:
 			return static_cast<float>(sqlite3_column_double(statement, col));
 		} else if constexpr (std::is_same_v<Decay, std::string> || std::is_same_v<Decay, std::string_view> || std::is_same_v<Decay, char*>)
 		{
-			return T(sqlite3_column_text(statement, col));
+			return T{reinterpret_cast<const char*>(sqlite3_column_text(statement, col))};
 		} else
 		{
-			return static_cast<T>(sqlite3_column_blob(statement, col));
+			return static_cast<const std::remove_pointer_t<T>*>(sqlite3_column_blob(statement, col));
 		}
 	}
 
@@ -191,6 +191,35 @@ private:
 	sqlite3_stmt* statement;
 };
 
+struct statement_result_t
+{
+	explicit statement_result_t(const int error_code): error_code{error_code}
+	{}
+
+	[[nodiscard]] bool has_error() const
+	{
+		return !(error_code == SQLITE_ROW || error_code == SQLITE_DONE || error_code == SQLITE_OK);
+	}
+
+	[[nodiscard]] bool has_row() const
+	{
+		return error_code == SQLITE_ROW;
+	}
+
+	explicit operator bool() const
+	{
+		return !has_error();
+	}
+
+	[[nodiscard]] int get_error() const
+	{
+		return error_code;
+	}
+
+private:
+	int error_code = 0;
+};
+
 class statement_t
 {
 public:
@@ -217,7 +246,7 @@ public:
 	}
 
 	// returns true if the statement has a row. false otherwise. optional is empty if there is an error
-	[[jetbrains::has_side_effects]] std::optional<bool> execute() const; // NOLINT
+	[[jetbrains::has_side_effects]] statement_result_t execute() const; // NOLINT
 
 	[[nodiscard]] column_t fetch() const
 	{
