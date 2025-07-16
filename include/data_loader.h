@@ -122,6 +122,7 @@ struct image_t
 struct assets_t
 {
 	blt::hashmap_t<std::string, blt::hashmap_t<std::string, image_t>> images;
+	blt::hashmap_t<std::string, blt::hashmap_t<std::string, image_t>> non_solid_images;
 };
 
 class data_loader_t

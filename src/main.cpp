@@ -24,83 +24,134 @@
 #include <sql.h>
 #include <data_loader.h>
 #include <blt/math/log_util.h>
+#include <render.h>
 
 blt::gfx::matrix_state_manager global_matrices;
 blt::gfx::resource_manager resources;
 blt::gfx::batch_renderer_2d renderer_2d(resources, global_matrices);
-blt::gfx::first_person_camera camera;
+blt::gfx::first_person_camera_2d camera;
+
+assets_t assets;
+std::optional<gpu_asset_manager> gpu_resources;
 
 void init(const blt::gfx::window_data&)
 {
-    using namespace blt::gfx;
+	using namespace blt::gfx;
 
+	std::optional<database_t> db;
+	if (!std::filesystem::exists("1.21.5.assets"))
+	{
+		asset_loader_t loader{"1.21.5"};
 
-    global_matrices.create_internals();
-    resources.load_resources();
-    renderer_2d.create();
+		if (const auto result = loader.load_assets("../res/assets", "../res/data"))
+		{
+			BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
+		}
+
+		db = std::move(loader.load_textures());
+	} else
+	{
+		db = load_database("1.21.5.assets");
+	}
+	const data_loader_t loader{*db};
+	assets = loader.load();
+	gpu_resources = gpu_asset_manager{assets};
+
+	global_matrices.create_internals();
+	resources.load_resources();
+	renderer_2d.create();
 }
 
 void update(const blt::gfx::window_data& data)
 {
-    global_matrices.update_perspectives(data.width, data.height, 90, 0.1, 2000);
+	global_matrices.update_perspectives(data.width, data.height, 90, 0.1, 2000);
 
-    camera.update();
-    camera.update_view(global_matrices);
-    global_matrices.update();
+	camera.update();
+	camera.update_view(global_matrices);
+	global_matrices.update();
 
-    renderer_2d.render(data.width, data.height);
+	renderer_2d.render(data.width, data.height);
+
+	ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)});
+	ImGui::SetNextWindowPos(ImVec2{0, 0});
+	ImGui::Begin("##Main", nullptr,
+				ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
+	ImGui::BeginChild("Hello", ImVec2{0, 0}, ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+	for (const auto& [namespace_str, textures] : gpu_resources->resources)
+	{
+		for (const auto& [name, resource] : textures)
+		{
+			ImGui::BeginGroup();
+			ImGui::Text("%s:%s", namespace_str.c_str(), name.c_str());
+			ImGui::Image(resource.texture->getTextureID(), ImVec2{
+							static_cast<float>(resource.image.width * 4), static_cast<float>(resource.image.height * 4)
+						});
+			ImGui::EndGroup();
+		}
+	}
+	ImGui::EndChild();
+	ImGui::SameLine();
+	ImGui::BeginChild("Silly", ImVec2{0, 0}, ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+	static char block_name[512] = "";
+	ImGui::InputText("Input Block", block_name, sizeof(block_name));
+	const std::string block_name_str(block_name);
+	const auto blocks = gpu_resources->resources["minecraft"].find(block_name_str);
+	if (blocks != gpu_resources->resources["minecraft"].end())
+	{
+		auto& [_, block_data] = *blocks;
+		ImGui::Text("Found Image:");
+		ImGui::Image(block_data.texture->getTextureID(), ImVec2{
+						static_cast<float>(block_data.image.width) * 8, static_cast<float>(block_data.image.height) * 8
+					});
+		ImGui::Text("Closest Images:");
+		auto sampler = block_data.image.get_default_sampler();
+
+		comparator_euclidean_t comparator;
+
+		std::vector<std::tuple<std::string, const gpu_image_t*, blt::vec3>> ordered_images;
+		for (const auto& [name, images] : gpu_resources->resources["minecraft"])
+		{
+			auto image_sampler = images.image.get_default_sampler();
+			auto dist = comparator.compare(sampler, image_sampler);
+			ordered_images.emplace_back("minecraft:" + name, &images, dist);
+		}
+		std::sort(ordered_images.begin(), ordered_images.end(), [](const auto& a, const auto& b) {
+			auto& [a_name, a_texture, a_dist] = a;
+			auto& [b_name, b_texture, b_dist] = b;
+			return b_dist.magnitude() > a_dist.magnitude();
+		});
+		for (int i = 0; i < 4; i++)
+		{
+			for (int j = 0; j < 4; j++)
+			{
+				auto& [name, texture, distance] = ordered_images[j * 4 + i];
+				ImGui::BeginGroup();
+				ImGui::Text("%s", name.c_str());
+				ImGui::Text("(%f,%f,%f)", distance[0], distance[1], distance[2]);
+				ImGui::Text("(Mag: %f)", distance.magnitude());
+				ImGui::Image(texture->texture->getTextureID(), ImVec2{static_cast<float>(texture->image.width) * 4, static_cast<float>(texture->image.height) * 4});
+				ImGui::EndGroup();
+				if (j != 3)
+					ImGui::SameLine();
+			}
+		}
+	}
+	ImGui::EndChild();
+	ImGui::End();
 }
 
 void destroy(const blt::gfx::window_data&)
 {
-    global_matrices.cleanup();
-    resources.cleanup();
-    renderer_2d.cleanup();
-    blt::gfx::cleanup();
-}
-
-void use_database(database_t& db)
-{
-    const data_loader_t data{db};
-    auto assets = data.load();
-
-    const auto i1 = assets.images["minecraft"]["block/redstone_block"];
-    const auto i2 = assets.images["minecraft"]["block/red_wool"];
-
-    auto s1 = i1.get_default_sampler();
-    auto s2 = i2.get_default_sampler();
-
-    comparator_euclidean_t compare{};
-
-    const auto difference = compare.compare(s1, s2);
-
-    BLT_TRACE("{}", difference);
-
+	gpu_resources.reset();
+	global_matrices.cleanup();
+	resources.cleanup();
+	renderer_2d.cleanup();
+	blt::gfx::cleanup();
 }
 
 int main()
 {
-    // std::filesystem::remove("1.21.5.assets");
-    // blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
+	blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
 
-    if (!std::filesystem::exists("1.21.5.assets"))
-    {
-        asset_loader_t loader{"1.21.5"};
-
-        if (const auto result = loader.load_assets("../res/assets", "../res/data"))
-        {
-            BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
-            return 1;
-        }
-
-        auto& db = loader.load_textures();
-        use_database(db);
-    } else {
-        auto db = load_database("1.21.5.assets");
-        use_database(db);
-    }
-
-
-
-    return 0;
+	return 0;
 }

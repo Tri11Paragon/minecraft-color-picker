@@ -63,6 +63,8 @@ add_subdirectory(lib/blt-with-graphics)
 add_subdirectory(lib/json)
 
 find_package(SQLite3 REQUIRED)
+find_package(OpenCV REQUIRED)
+include_directories( ${OpenCV_INCLUDE_DIRS} )
 
 include_directories(include/)
 file(GLOB_RECURSE PROJECT_BUILD_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -72,7 +74,7 @@ add_executable(minecraft-color-picker ${PROJECT_BUILD_FILES})
 compile_options(minecraft-color-picker)
 
 target_link_libraries(minecraft-color-picker PRIVATE BLT_WITH_GRAPHICS SQLite::SQLite3)
-target_link_libraries(minecraft-color-picker PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(minecraft-color-picker PRIVATE nlohmann_json::nlohmann_json ${OpenCV_LIBS})
 
 if (${BUILD_MINECRAFT_COLOR_PICKER_EXAMPLES})
 

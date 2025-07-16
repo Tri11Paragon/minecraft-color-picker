@@ -103,7 +103,6 @@ sampler_one_point_t::sampler_one_point_t(const image_t& image)
 	}
 	if (alpha != 0)
 		average = average / alpha;
-	BLT_TRACE("Average: {}", average);
 }
 
 blt::vec3 comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
