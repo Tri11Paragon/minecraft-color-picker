@@ -98,6 +98,7 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 	std::optional<std::filesystem::path> model_folder;
 	std::optional<std::filesystem::path> texture_folder;
 	std::optional<std::filesystem::path> tags_folder;
+	std::optional<std::filesystem::path> biomes_folder;
 	std::optional<std::filesystem::path> blockstate_folder;
 
 	for (const auto& entry : std::filesystem::recursive_directory_iterator(asset_folder))
@@ -138,11 +139,8 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 		{
 			if (!entry.is_directory())
 				continue;
-			if (entry.path().string().find("tags") != std::string::npos)
-			{
+			if (!tags_folder && entry.path().compare("tags") == 0)
 				tags_folder = entry.path();
-				break;
-			}
 		}
 	}
 
@@ -159,6 +157,8 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 	{
 		data.json_data[namespace_name.string()].tag_folder = tags_folder->string();
 		data.json_data[namespace_name.string()].data_namespace_folder = tags_folder->parent_path().string();
+
+		biomes_folder = tags_folder->parent_path() / "worldgen" / "biome";
 	}
 
 	data.json_data[namespace_name.string()].asset_namespace_folder = model_folder->parent_path().string();

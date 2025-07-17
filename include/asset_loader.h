@@ -23,6 +23,7 @@
 #include <blt/std/expected.h>
 
 #include <utility>
+#include <blt/math/vectors.h>
 #include <blt/std/hashmap.h>
 
 class load_failure_t
@@ -118,6 +119,8 @@ struct namespace_data_t
 	std::string texture_folder;
 
 	blt::hashmap_t<std::string, std::string> textures;
+	blt::hashmap_t<std::string, blt::vec3> biome_grass_colors;
+	blt::hashmap_t<std::string, blt::vec3> biome_foliage_colors;
 };
 
 struct asset_data_t
