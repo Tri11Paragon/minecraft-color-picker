@@ -22,13 +22,14 @@
 #include <sql.h>
 #include <filesystem>
 #include <blt/math/vectors.h>
+#include <blt/std/assert.h>
 #include <blt/std/hashmap.h>
 
 database_t load_database(const std::filesystem::path& path);
 
 struct image_t;
 
-template<typename Value>
+template <typename Value>
 struct sequence_t
 {
 	sequence_t() = default;
@@ -88,6 +89,7 @@ struct sampler_one_point_t final : sampler_interface_t
 	{
 		return sample_sequence_t{average};
 	}
+
 	blt::vec3 average;
 };
 
@@ -121,20 +123,48 @@ struct image_t
 
 struct assets_t
 {
+	database_t* db = nullptr;
 	blt::hashmap_t<std::string, blt::hashmap_t<std::string, image_t>> images;
 	blt::hashmap_t<std::string, blt::hashmap_t<std::string, image_t>> non_solid_images;
+
+	assets_t() = default;
+
+	explicit assets_t(database_t& db): db{&db}
+	{}
+
+	template<typename... Types>
+	std::vector<std::tuple<Types...>> get_rows(const std::string& sql)
+	{
+		if (db == nullptr)
+			BLT_ABORT("Database is null. Did you forget to load it?");
+
+		auto stmt = db->prepare(sql);
+		return get_rows<Types...>(stmt);
+	}
+
+	template<typename... Types>
+	std::vector<std::tuple<Types...>> get_rows(statement_t& stmt)
+	{
+		if (db == nullptr)
+			BLT_ABORT("Database is null. Did you forget to load it?");
+		stmt.bind();
+		std::vector<std::tuple<Types...>> results;
+		while (stmt.execute().has_row())
+			results.push_back(stmt.fetch().get<Types...>());
+		return results;
+	}
 };
 
 class data_loader_t
 {
 public:
-	explicit data_loader_t(database_t& data): db{&data}
+	explicit data_loader_t(database_t data): db{std::move(data)}
 	{}
 
-	[[nodiscard]] assets_t load() const;
+	[[nodiscard]] assets_t load();
 
 private:
-	database_t* db;
+	database_t db;
 };
 
 #endif //DATA_LOADER_H

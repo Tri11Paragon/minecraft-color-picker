@@ -98,6 +98,10 @@ struct model_data_t
 struct tag_data_t
 {
 	blt::hashset_t<std::string> list;
+};
+
+struct block_state_t
+{
 	blt::hashmap_t<std::string, blt::hashset_t<std::string>> models;
 };
 
@@ -105,6 +109,7 @@ struct namespace_data_t
 {
 	blt::hashmap_t<std::string, model_data_t> models;
 	blt::hashmap_t<std::string, tag_data_t> tags;
+	blt::hashmap_t<std::string, block_state_t> block_states;
 	std::string asset_namespace_folder;
 	std::string data_namespace_folder;
 
@@ -140,5 +145,7 @@ private:
 	database_t db;
 	std::string name;
 };
+
+std::string block_pretty_name(std::string block_name);
 
 #endif //ASSET_LOADER_H

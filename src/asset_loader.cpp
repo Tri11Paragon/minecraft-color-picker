@@ -305,7 +305,7 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 		{
 			if (!entry.is_regular_file())
 				continue;
-			if (!(entry.path().has_extension() && entry.path().extension().compare("json")))
+			if (entry.path().has_extension() && entry.path().extension().compare(".json") != 0)
 				continue;
 			auto block_name = entry.path().stem().string();
 
@@ -317,10 +317,14 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 			{
 				const auto& model = *next;
 				const auto parts = blt::string::split(model, ':');
-				if (parts.size() == 1)
-					data.json_data[namespace_name.string()].tags[block_name].models[namespace_name.string()].insert(parts[0]);
-				else
-					data.json_data[namespace_name.string()].tags[block_name].models[parts[0]].insert(parts[1]);
+				auto namespace_str = namespace_name.string();
+				auto model_str = parts[0];
+				if (parts.size() > 1)
+				{
+					namespace_str = parts[0];
+					model_str = parts[1];
+				}
+				data.json_data[namespace_name.string()].block_states[block_name].models[namespace_str].insert(model_str);
 			}
 		}
 	}
@@ -395,23 +399,32 @@ database_t& asset_loader_t::load_textures()
 		BLT_INFO("[Phase 2] Loaded {} non-solid textures for namespace {}", textures.size(), namespace_str);
 	}
 
+	auto model_table = db.builder().create_table("models");
+	model_table.with_column<std::string>("namespace").primary_key();
+	model_table.with_column<std::string>("model").primary_key();
+	model_table.with_column<std::string>("texture_namespace").primary_key();
+	model_table.with_column<std::string>("texture").primary_key();
+	model_table.build().execute();
+
 	auto tag_table = db.builder().create_table("tags");
 	tag_table.with_column<std::string>("namespace").primary_key();
 	tag_table.with_column<std::string>("tag").primary_key();
 	tag_table.with_column<std::string>("block").primary_key();
 	tag_table.build().execute();
 
-	auto tag_models = db.builder().create_table("tag_models");
-	tag_models.with_column<std::string>("namespace").primary_key().foreign_key("tags", "namespace");
-	tag_models.with_column<std::string>("tag").primary_key().foreign_key("tags", "tag");
+	auto tag_models = db.builder().create_table("block_names");
+	tag_models.with_column<std::string>("namespace").primary_key();
+	tag_models.with_column<std::string>("block_name").primary_key();
 	tag_models.with_column<std::string>("model_namespace").primary_key();
 	tag_models.with_column<std::string>("model").primary_key();
 	tag_models.build().execute();
 
 	const static auto insert_tag_sql = "INSERT INTO tags VALUES (?, ?, ?)";
-	const static auto insert_tag_model_sql = "INSERT INTO tag_models VALUES (?, ?, ?, ?)";
+	const static auto insert_block_name_sql = "INSERT INTO block_names VALUES (?, ?, ?, ?)";
+	const static auto insert_models_sql = "INSERT INTO models VALUES (?, ?, ?, ?)";
 	const auto insert_tag_stmt = db.prepare(insert_tag_sql);
-	const auto insert_tag_model_stmt = db.prepare(insert_tag_model_sql);
+	const auto insert_block_name_stmt = db.prepare(insert_block_name_sql);
+	const auto insert_models_stmt = db.prepare(insert_models_sql);
 
 	BLT_DEBUG("[Phase 2] Begin tag storage");
 	size_t tag_list_count = 0;
@@ -420,7 +433,7 @@ database_t& asset_loader_t::load_textures()
 	{
 		for (const auto& [tag_name, tag_data] : jdata.tags)
 		{
-			if (tag_data.list.empty() && tag_data.models.empty())
+			if (tag_data.list.empty())
 				continue;
 			for (const auto& block_tag : tag_data.list)
 			{
@@ -430,21 +443,49 @@ database_t& asset_loader_t::load_textures()
 					BLT_WARN("[Tag List] Unable to insert {} into {}:{} reason '{}'", block_tag, namespace_str, tag_name, db.get_error());
 			}
 			BLT_DEBUG("[Phase 2] Loaded {} blocks to tag {}:{}", tag_data.list.size(), namespace_str, tag_name);
-			for (const auto& [model_namespace, model_list] : tag_data.models)
+		}
+		for (const auto& [block_name, bstate] : jdata.block_states)
+		{
+			for (const auto& [model_namespace, model_list] : bstate.models)
 			{
 				for (const auto& model : model_list)
 				{
 					++tag_model_count;
-					insert_tag_model_stmt.bind().bind_all(namespace_str, tag_name, model_namespace, model);
-					if (!insert_tag_model_stmt.execute())
-						BLT_WARN("[Model List] Unable to insert {}:{} into {}:{} reason '{}'", namespace_str, tag_name, model_namespace, model,
+					insert_block_name_stmt.bind().bind_all(namespace_str, block_name, model_namespace, model);
+					if (!insert_block_name_stmt.execute())
+						BLT_WARN("[Block Names] Unable to insert {}:{} into {}:{} reason '{}'", model_namespace, model, namespace_str, block_name,
 							db.get_error());
 				}
 			}
 		}
-		BLT_INFO("[Phase 2] Loaded {} blocks to tags.", tag_list_count);
-		BLT_INFO("[Phase 2] Loaded {} models to tags.", tag_model_count);
 	}
+	BLT_INFO("[Phase 2] Loaded {} blocks to tags.", tag_list_count);
+	BLT_INFO("[Phase 2] Loaded {} models to tags.", tag_model_count);
+	BLT_INFO("[Phase 2] Saving models texture data.");
+	for (const auto& [namespace_str, jdata] : data.json_data)
+	{
+		for (const auto& [model_name, model] : jdata.models)
+		{
+			if (model.textures)
+			{
+				blt::hashset_t<std::string> declassed_textures;
+				for (const auto& texture : *model.textures)
+					declassed_textures.insert(texture.namespace_str + ':' + texture.key_str);
+
+				for (const auto& texture_str : declassed_textures)
+				{
+					auto parts = blt::string::split(texture_str, ':');
+					if (parts.size() == 1)
+						insert_models_stmt.bind().bind_all(namespace_str, model_name, namespace_str, parts[0]);
+					else
+						insert_models_stmt.bind().bind_all(namespace_str, model_name, parts[0], parts[1]);
+					if (!insert_models_stmt.execute())
+						BLT_WARN("[Model Data] Unable to insert {}:{} into textures. Reason '{}'", namespace_str, model_name, db.get_error());
+				}
+			}
+		}
+	}
+	BLT_INFO("Finished loading assets");
 
 	return db;
 }
@@ -455,17 +496,17 @@ void asset_loader_t::process_texture(const statement_t& stmt, const std::string&
 	if (!std::filesystem::exists(texture_path))
 		return;
 	int width, height, channels;
-	const auto data = stbi_loadf(texture_path.c_str(), &width, &height, &channels, 4);
-	if (data == nullptr)
+	const auto ptr = stbi_loadf(texture_path.c_str(), &width, &height, &channels, 4);
+	if (ptr == nullptr)
 		return;
 	stmt.bind().bind_all(namespace_str, texture, width, height, blt::span{
-							reinterpret_cast<char*>(data), static_cast<blt::size_t>(width * height * 4) * sizeof(float)
+							reinterpret_cast<char*>(ptr), static_cast<blt::size_t>(width * height * 4) * sizeof(float)
 						});
 	if (!stmt.execute())
 	{
 		BLT_WARN("Failed to insert texture '{}:{}' into database. Error: '{}'", namespace_str, texture, db.get_error());
 	}
-	stbi_image_free(data);
+	stbi_image_free(ptr);
 }
 
 std::vector<namespaced_object> asset_data_t::resolve_parents(const namespaced_object& model) const
@@ -482,4 +523,19 @@ std::vector<namespaced_object> asset_data_t::resolve_parents(const namespaced_ob
 			break;
 	}
 	return parents;
+}
+
+std::string block_pretty_name(std::string block_name)
+{
+	if (block_name.empty())
+		return block_name;
+	size_t pos;
+	while ((pos = block_name.find('_')) != std::string::npos)
+	{
+		block_name[pos] = ' ';
+		if (pos + 1 < block_name.size())
+			block_name[pos + 1] = static_cast<char>(std::toupper(block_name[pos + 1]));
+	}
+	block_name[0] = static_cast<char>(std::toupper(block_name[0]));
+	return block_name;
 }

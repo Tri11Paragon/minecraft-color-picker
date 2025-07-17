@@ -239,7 +239,7 @@ public:
 		return *this;
 	}
 
-	binder_t bind() const // NOLINT
+	[[jetbrains::has_side_effects]] binder_t bind() const // NOLINT
 	{
 		sqlite3_reset(statement);
 		return binder_t{statement};

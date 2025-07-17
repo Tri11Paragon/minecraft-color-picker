@@ -33,12 +33,12 @@ database_t load_database(const std::filesystem::path& path)
 	return db;
 }
 
-assets_t data_loader_t::load() const
+assets_t data_loader_t::load()
 {
 	constexpr auto SQL = "SELECT * FROM solid_textures";
-	const auto stmt = db->prepare(SQL);
+	const auto stmt = db.prepare(SQL);
 
-	assets_t assets;
+	assets_t assets{db};
 
 	while (stmt.execute().has_row())
 	{

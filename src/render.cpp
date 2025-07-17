@@ -35,3 +35,14 @@ gpu_asset_manager::gpu_asset_manager(assets_t assets)
 		}
 	}
 }
+
+std::vector<std::pair<std::string, const gpu_image_t*>> gpu_asset_manager::get_icon_render_list()
+{
+	std::vector<std::pair<std::string, const gpu_image_t*>> ret;
+	for (const auto& [namespace_str, map] : resources)
+	{
+		for (const auto& [texture_str, gpu_image] : map)
+			ret.emplace_back(texture_str, &gpu_image);
+	}
+	return ret;
+}

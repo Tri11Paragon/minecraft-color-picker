@@ -16,34 +16,14 @@
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef RENDER_H
-#define RENDER_H
+#ifndef BLOCK_PICKER_H
+#define BLOCK_PICKER_H
 
-#include <data_loader.h>
-#include <blt/gfx/texture.h>
+#include <string>
+#include <optional>
+#include <blt/math/vectors.h>
+#include <render.h>
 
-struct gpu_image_t
-{
-	gpu_image_t() = default;
+std::optional<std::string> show_block_picker(const blt::vec2& pos, const std::vector<std::pair<std::string, const gpu_image_t*>>& block_textures, int icons_per_row = 8, const blt::vec2& icon_size = {32, 32}, float window_size = 32 * 12 + 48);
 
-	gpu_image_t(image_t image, std::unique_ptr<blt::gfx::texture_gl2D> texture): image(std::move(image)), texture(std::move(texture))
-	{
-
-	}
-
-	image_t image;
-	std::unique_ptr<blt::gfx::texture_gl2D> texture;
-};
-
-class gpu_asset_manager
-{
-public:
-	explicit gpu_asset_manager(assets_t assets);
-
-
-	blt::hashmap_t<std::string, blt::hashmap_t<std::string, gpu_image_t>> resources;
-
-	std::vector<std::pair<std::string, const gpu_image_t*>> get_icon_render_list();
-};
-
-#endif //RENDER_H
+#endif //BLOCK_PICKER_H
