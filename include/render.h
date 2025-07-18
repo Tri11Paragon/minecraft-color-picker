@@ -40,12 +40,18 @@ struct gpu_image_t
 class gpu_asset_manager
 {
 public:
-	explicit gpu_asset_manager(assets_t assets);
+	explicit gpu_asset_manager(assets_t& assets);
 
 
 	blt::hashmap_t<std::string, blt::hashmap_t<std::string, gpu_image_t>> resources;
+	blt::hashmap_t<std::string, blt::hashmap_t<std::string, gpu_image_t>> non_solid_resources;
 
 	std::vector<block_picker_data_t> get_icon_render_list();
+    
+    void update_textures(biome_color_t color);
+    
+    private:
+        assets_t* assets;
 };
 
 #endif //RENDER_H

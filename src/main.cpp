@@ -26,6 +26,7 @@
 #include <data_loader.h>
 #include <blt/math/log_util.h>
 #include <render.h>
+#include <themes.h>
 
 blt::gfx::matrix_state_manager global_matrices;
 blt::gfx::resource_manager resources;
@@ -35,277 +36,296 @@ blt::gfx::first_person_camera_2d camera;
 assets_t assets;
 std::optional<gpu_asset_manager> gpu_resources;
 
-struct tab_data_t
+static void HelpMarker(const std::string& desc)
 {
-	enum tab_type_t
-	{
-		UNCONFIGURED, COLOR_SELECT
-	};
+    ImGui::TextDisabled("(?)");
+    if (ImGui::BeginItemTooltip()) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::TextUnformatted(desc.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
 
-	explicit tab_data_t(const size_t id): tab_name("Unconfigured##" + std::to_string(id)), id(id)
-	{}
-
-	void render()
-	{
-		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
-		{
-			ImGui::OpenPopup("RenameTab");
-			std::memcpy(buf, tab_name.data(), std::min(tab_name.size(), sizeof(buf)));
-			buf[sizeof(buf) - 1] = '\0';
-		}
-
-		if (ImGui::BeginPopup("RenameTab", ImGuiWindowFlags_AlwaysAutoResize))
-		{
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 30);
-			ImGui::SetKeyboardFocusHere();
-			ImGui::Text("Rename Tab");
-			if (ImGui::InputText(("##rename" + std::to_string(id)).c_str(),
-								  buf, sizeof(buf),
-								  ImGuiInputTextFlags_EnterReturnsTrue |
-								  ImGuiInputTextFlags_AutoSelectAll))
-			{
-				tab_name = buf;
-				tab_name += "##";
-				tab_name += std::to_string(id);
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
-		}
-
-
-		ImVec2 avail = ImGui::GetContentRegionAvail();
-		switch (configured)
-		{
-			case UNCONFIGURED:
-			{
-				const float btnWidth = avail.x / 4.0f;
-				const float btnHeight = ImGui::GetFrameHeight() * 3;
-				const int btnCount = 4;
-				const float itemSpacingY = ImGui::GetStyle().ItemSpacing.y;
-
-				float menuWidth = btnWidth;
-				float menuHeight = btnCount * btnHeight + (btnCount - 1) * itemSpacingY;
-
-				ImVec2 cursorStart = ImGui::GetCursorPos();  // remember where we were
-
-				float offsetX = (avail.x - menuWidth) * 0.5f;
-				float offsetY = (avail.y - menuHeight) * 0.5f;
-
-				if (offsetX < 0)
-					offsetX = 0;
-				if (offsetY < 0)
-					offsetY = 0;
-
-				ImGui::SetCursorPos({cursorStart.x + offsetX, cursorStart.y + offsetY});
-
-				ImGui::BeginGroup();         // keep it together — lets us query size later
-				{
-					if (ImGui::Button("Color Picker", ImVec2(btnWidth, btnHeight)))
-					{
-						configured = COLOR_SELECT;
-						tab_name = "Color Picker##" + std::to_string(id);
-					}
-					if (ImGui::Button("Audio", ImVec2(btnWidth, btnHeight)))
-						/* … */;
-					if (ImGui::Button("Controls", ImVec2(btnWidth, btnHeight)))
-						/* … */;
-					if (ImGui::Button("Back", ImVec2(btnWidth, btnHeight)))
-						/* … */;
-				}
-				ImGui::EndGroup();
-			}
-			break;
-			case COLOR_SELECT:
-				break;
-		}
-	}
-
-	std::string tab_name = "Unconfigured";
-	tab_type_t configured = UNCONFIGURED;
-	char buf[64]{};
-	size_t id;
+struct tab_data_t {
+    enum tab_type_t {
+        UNCONFIGURED, COLOR_SELECT
+    };
+    
+    explicit tab_data_t(const size_t id, std::vector<tab_data_t>& tabs): tab_name("Unconfigured##" + std::to_string(id)), id(id), tabs{&tabs}
+    {}
+    
+    void render()
+    {
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+            ImGui::OpenPopup("RenameTab");
+            const auto size = std::min(tab_name.find('#'), sizeof(buf) - 1);
+            std::memset(buf, 0, sizeof(buf));
+            std::memcpy(buf, tab_name.data(), size);
+        }
+        
+        if (ImGui::BeginPopup("RenameTab", ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 30);
+            ImGui::SetKeyboardFocusHere();
+            ImGui::Text("Rename Tab");
+            if (ImGui::InputText(("##rename" + std::to_string(id)).c_str(),
+                                 buf, sizeof(buf),
+                                 ImGuiInputTextFlags_EnterReturnsTrue |
+                                 ImGuiInputTextFlags_AutoSelectAll)) {
+                tab_name = buf;
+                tab_name += "##";
+                tab_name += std::to_string(id);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        
+        
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        switch (configured) {
+            case UNCONFIGURED: {
+                const float btnWidth = avail.x / 4.0f;
+                const float btnHeight = ImGui::GetFrameHeight() * 3;
+                const int btnCount = 4;
+                const float itemSpacingY = ImGui::GetStyle().ItemSpacing.y;
+                
+                float menuWidth = btnWidth;
+                float menuHeight = btnCount * btnHeight + (btnCount - 1) * itemSpacingY;
+                
+                ImVec2 cursorStart = ImGui::GetCursorPos();  // remember where we were
+                
+                float offsetX = (avail.x - menuWidth) * 0.5f;
+                float offsetY = (avail.y - menuHeight) * 0.5f;
+                
+                if (offsetX < 0)
+                    offsetX = 0;
+                if (offsetY < 0)
+                    offsetY = 0;
+                
+                ImGui::SetCursorPos({cursorStart.x + offsetX, cursorStart.y + offsetY});
+                
+                ImGui::BeginGroup();
+                {
+                    if (ImGui::Button("Color Picker", ImVec2(btnWidth, btnHeight))) {
+                        configured = COLOR_SELECT;
+                        tab_name = "Color Picker##" + std::to_string(id);
+                    }
+                    
+                    if (ImGui::Button("Audio", ImVec2(btnWidth, btnHeight)))
+                        /* … */;
+                    if (ImGui::Button("Controls", ImVec2(btnWidth, btnHeight)))
+                        /* … */;
+                    if (ImGui::Button("Back", ImVec2(btnWidth, btnHeight)))
+                        /* … */;
+                }
+                ImGui::EndGroup();
+            }
+                break;
+            case COLOR_SELECT:
+                break;
+        }
+    }
+    
+    std::string tab_name = "Unconfigured";
+    tab_type_t configured = UNCONFIGURED;
+    char buf[64]{};
+    size_t id;
+    
+    std::vector<tab_data_t>* tabs;
 };
 
 std::vector<tab_data_t> window_tabs;
 
 void init(const blt::gfx::window_data&)
 {
-	using namespace blt::gfx;
-
-	std::optional<database_t> db;
-	if (!std::filesystem::exists("1.21.5.assets"))
-	{
-		asset_loader_t loader{"1.21.5"};
-
-		if (const auto result = loader.load_assets("../res/assets", "../res/data"))
-		{
-			BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
-		}
-
-		db = std::move(loader.load_textures());
-	} else
-	{
-		db = load_database("1.21.5.assets");
-	}
-	data_loader_t loader{std::move(*db)};
-	assets = loader.load();
-	gpu_resources = gpu_asset_manager{assets};
-
-	global_matrices.create_internals();
-	resources.load_resources();
-	renderer_2d.create();
+    using namespace blt::gfx;
+    
+    Themes::setBessDarkColors();
+    
+    std::optional<database_t> db;
+    if (!std::filesystem::exists("1.21.5.assets")) {
+        asset_loader_t loader{"1.21.5"};
+        
+        if (const auto result = loader.load_assets("../res/assets", "../res/data")) {
+            BLT_ERROR("Failed to load assets. Reason: {}", result->to_string());
+        }
+        
+        db = std::move(loader.load_textures());
+    } else {
+        db = load_database("1.21.5.assets");
+    }
+    data_loader_t loader{std::move(*db)};
+    assets = loader.load();
+    gpu_resources = gpu_asset_manager{assets};
+    
+    global_matrices.create_internals();
+    resources.load_resources();
+    renderer_2d.create();
 }
 
 void update(const blt::gfx::window_data& data)
 {
-	global_matrices.update_perspectives(data.width, data.height, 90, 0.1, 2000);
-
-	camera.update();
-	camera.update_view(global_matrices);
-	global_matrices.update();
-
-	renderer_2d.render(data.width, data.height);
-
-	ImGui::ShowDemoWindow(nullptr);
-
-	const auto s = gpu_resources->get_icon_render_list();
-	if (auto block = show_block_picker(blt::vec2{200, 200}, s))
-		BLT_TRACE("Selected block {}", *block);
-
-	auto open_picker = false;
-	if (ImGui::Begin("Hello"))
-	{
-		if (ImGui::Button("Start"))
-		{
-			open_picker = true;
-		}
-	}
-	ImGui::End();
-
-	if (open_picker)
-		ImGui::OpenPopup("##BlockPicker");
-
-	ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)}, ImGuiCond_Always);
-	ImGui::SetNextWindowPos(ImVec2{0, 0}, ImGuiCond_Always);
-	ImGui::Begin("##Main", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
-	ImGui::BeginGroup();
-	auto avail = ImGui::GetContentRegionAvail();
-	if (ImGui::BeginChild("Control Panel", ImVec2(300, avail.y), ImGuiChildFlags_Border))
-	{}
-	ImGui::EndChild();
-	ImGui::EndGroup();
-	ImGui::SameLine();
-	avail = ImGui::GetContentRegionAvail();
-	if (ImGui::BeginChild("MainTabs", avail, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
-	{
-		static size_t next_tab_id = 0;
-		if (ImGui::BeginTabBar(
-			"Color Views", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
-		{
-			if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
-				window_tabs.emplace_back(next_tab_id++);
-
-			for (size_t n = 0; n < window_tabs.size();)
-			{
-				bool open = true;
-				if (ImGui::BeginTabItem(window_tabs[n].tab_name.c_str(), &open, ImGuiTabItemFlags_None))
-				{
-					window_tabs[n].render();
-					ImGui::EndTabItem();
-				}
-
-				if (!open)
-					window_tabs.erase(window_tabs.begin() + n);
-				else
-					n++;
-			}
-
-			ImGui::EndTabBar();
-		}
-	}
-	ImGui::EndChild();
-	ImGui::End();
-
-	// ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)});
-	// ImGui::SetNextWindowPos(ImVec2{0, 0});
-	// ImGui::Begin("##Main", nullptr,
-	// 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
-	// ImGui::BeginChild("Hello", ImVec2{0, 0}, ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
-	// for (const auto& [namespace_str, textures] : gpu_resources->resources)
-	// {
-	// 	for (const auto& [name, resource] : textures)
-	// 	{
-	// 		ImGui::BeginGroup();
-	// 		ImGui::Text("%s:%s", namespace_str.c_str(), name.c_str());
-	// 		ImGui::Image(resource.texture->getTextureID(), ImVec2{
-	// 						static_cast<float>(resource.image.width * 4), static_cast<float>(resource.image.height * 4)
-	// 					});
-	// 		ImGui::EndGroup();
-	// 	}
-	// }
-	// ImGui::EndChild();
-	// ImGui::SameLine();
-	// ImGui::BeginChild("Silly", ImVec2{0, 0}, ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
-	// static char block_name[512] = "";
-	// ImGui::InputText("Input Block", block_name, sizeof(block_name));
-	// const std::string block_name_str(block_name);
-	// const auto blocks = gpu_resources->resources["minecraft"].find(block_name_str);
-	// if (blocks != gpu_resources->resources["minecraft"].end())
-	// {
-	// 	auto& [_, block_data] = *blocks;
-	// 	ImGui::Text("Found Image:");
-	// 	ImGui::Image(block_data.texture->getTextureID(), ImVec2{
-	// 					static_cast<float>(block_data.image.width) * 8, static_cast<float>(block_data.image.height) * 8
-	// 				});
-	// 	ImGui::Text("Closest Images:");
-	// 	auto sampler = block_data.image.get_default_sampler();
-	//
-	// 	comparator_euclidean_t comparator;
-	//
-	// 	std::vector<std::tuple<std::string, const gpu_image_t*, blt::vec3>> ordered_images;
-	// 	for (const auto& [name, images] : gpu_resources->resources["minecraft"])
-	// 	{
-	// 		auto image_sampler = images.image.get_default_sampler();
-	// 		auto dist = comparator.compare(sampler, image_sampler);
-	// 		ordered_images.emplace_back("minecraft:" + name, &images, dist);
-	// 	}
-	// 	std::sort(ordered_images.begin(), ordered_images.end(), [](const auto& a, const auto& b) {
-	// 		auto& [a_name, a_texture, a_dist] = a;
-	// 		auto& [b_name, b_texture, b_dist] = b;
-	// 		return b_dist.magnitude() > a_dist.magnitude();
-	// 	});
-	// 	for (int i = 0; i < 4; i++)
-	// 	{
-	// 		for (int j = 0; j < 4; j++)
-	// 		{
-	// 			auto& [name, texture, distance] = ordered_images[j * 4 + i];
-	// 			ImGui::BeginGroup();
-	// 			ImGui::Text("%s", name.c_str());
-	// 			ImGui::Text("(%f,%f,%f)", distance[0], distance[1], distance[2]);
-	// 			ImGui::Text("(Mag: %f)", distance.magnitude());
-	// 			ImGui::Image(texture->texture->getTextureID(), ImVec2{static_cast<float>(texture->image.width) * 4, static_cast<float>(texture->image.height) * 4});
-	// 			ImGui::EndGroup();
-	// 			if (j != 3)
-	// 				ImGui::SameLine();
-	// 		}
-	// 	}
-	// }
-	// ImGui::EndChild();
-	// ImGui::End();
+    global_matrices.update_perspectives(data.width, data.height, 90, 0.1, 2000);
+    
+    camera.update();
+    camera.update_view(global_matrices);
+    global_matrices.update();
+    
+    renderer_2d.render(data.width, data.height);
+    
+    const auto s = gpu_resources->get_icon_render_list();
+    if (auto block = show_block_picker(blt::vec2{200, 200}, s))
+        BLT_TRACE("Selected block {}", *block);
+    
+    ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)}, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2{0, 0}, ImGuiCond_Always);
+    ImGui::Begin("##Main", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
+    ImGui::BeginGroup();
+    auto avail = ImGui::GetContentRegionAvail();
+    bool should_open = false;
+    if (ImGui::BeginChild("Control Panel", ImVec2(300, avail.y), ImGuiChildFlags_Border)) {
+        ImGui::Text("Control Panel");
+        ImGui::Separator();
+        ImGui::Text("Select Biome");
+        ImGui::SameLine();
+        HelpMarker("Select a biome to view grass, leaves, etc with their respective textures.");
+        if (ImGui::BeginListBox("##Biomes")) {
+            auto& biomes_vec = assets.get_biomes();
+            static size_t item_selected_idx = std::distance(biomes_vec.begin(), std::find_if(biomes_vec.begin(), biomes_vec.end(),
+                                                                                             [&](const auto& item) {
+                                                                                                 return std::get<1>(item) == "plains";
+                                                                                             }));
+            for (const auto& [i, namespace_str, biome] : blt::enumerate(biomes_vec).flatten()) {
+                const bool is_selected = (item_selected_idx == i);
+                if (ImGui::Selectable((block_pretty_name(biome)).c_str(), is_selected)) {
+                    item_selected_idx = i;
+                    gpu_resources->update_textures(assets.assets[namespace_str].biome_colors[biome]);
+                }
+                if (is_selected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndListBox();
+        }
+        ImGui::Separator();
+        if (ImGui::Button("Silly")) {
+            should_open = true;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::EndGroup();
+    ImGui::SameLine();
+    avail = ImGui::GetContentRegionAvail();
+    if (ImGui::BeginChild("MainTabs", avail, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        static size_t next_tab_id = 0;
+        if (ImGui::BeginTabBar(
+                "Color Views", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll)) {
+            if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
+                window_tabs.emplace_back(next_tab_id++, window_tabs);
+            
+            for (size_t n = 0; n < window_tabs.size();) {
+                bool open = true;
+                if (ImGui::BeginTabItem(window_tabs[n].tab_name.c_str(), &open, ImGuiTabItemFlags_None)) {
+                    window_tabs[n].render();
+                    ImGui::EndTabItem();
+                }
+                
+                if (!open)
+                    window_tabs.erase(window_tabs.begin() + static_cast<blt::ptrdiff_t>(n));
+                else
+                    n++;
+            }
+            
+            ImGui::EndTabBar();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::End();
+    
+    if (should_open)
+        ImGui::OpenPopup("##BlockPicker");
+    
+    ImGui::ShowDemoWindow(nullptr);
+    
+    // ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)});
+    // ImGui::SetNextWindowPos(ImVec2{0, 0});
+    // ImGui::Begin("##Main", nullptr,
+    // 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
+    // ImGui::BeginChild("Hello", ImVec2{0, 0}, ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+    // for (const auto& [namespace_str, textures] : gpu_resources->resources)
+    // {
+    // 	for (const auto& [name, resource] : textures)
+    // 	{
+    // 		ImGui::BeginGroup();
+    // 		ImGui::Text("%s:%s", namespace_str.c_str(), name.c_str());
+    // 		ImGui::Image(resource.texture->getTextureID(), ImVec2{
+    // 						static_cast<float>(resource.image.width * 4), static_cast<float>(resource.image.height * 4)
+    // 					});
+    // 		ImGui::EndGroup();
+    // 	}
+    // }
+    // ImGui::EndChild();
+    // ImGui::SameLine();
+    // ImGui::BeginChild("Silly", ImVec2{0, 0}, ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+    // static char block_name[512] = "";
+    // ImGui::InputText("Input Block", block_name, sizeof(block_name));
+    // const std::string block_name_str(block_name);
+    // const auto blocks = gpu_resources->resources["minecraft"].find(block_name_str);
+    // if (blocks != gpu_resources->resources["minecraft"].end())
+    // {
+    // 	auto& [_, block_data] = *blocks;
+    // 	ImGui::Text("Found Image:");
+    // 	ImGui::Image(block_data.texture->getTextureID(), ImVec2{
+    // 					static_cast<float>(block_data.image.width) * 8, static_cast<float>(block_data.image.height) * 8
+    // 				});
+    // 	ImGui::Text("Closest Images:");
+    // 	auto sampler = block_data.image.get_default_sampler();
+    //
+    // 	comparator_euclidean_t comparator;
+    //
+    // 	std::vector<std::tuple<std::string, const gpu_image_t*, blt::vec3>> ordered_images;
+    // 	for (const auto& [name, images] : gpu_resources->resources["minecraft"])
+    // 	{
+    // 		auto image_sampler = images.image.get_default_sampler();
+    // 		auto dist = comparator.compare(sampler, image_sampler);
+    // 		ordered_images.emplace_back("minecraft:" + name, &images, dist);
+    // 	}
+    // 	std::sort(ordered_images.begin(), ordered_images.end(), [](const auto& a, const auto& b) {
+    // 		auto& [a_name, a_texture, a_dist] = a;
+    // 		auto& [b_name, b_texture, b_dist] = b;
+    // 		return b_dist.magnitude() > a_dist.magnitude();
+    // 	});
+    // 	for (int i = 0; i < 4; i++)
+    // 	{
+    // 		for (int j = 0; j < 4; j++)
+    // 		{
+    // 			auto& [name, texture, distance] = ordered_images[j * 4 + i];
+    // 			ImGui::BeginGroup();
+    // 			ImGui::Text("%s", name.c_str());
+    // 			ImGui::Text("(%f,%f,%f)", distance[0], distance[1], distance[2]);
+    // 			ImGui::Text("(Mag: %f)", distance.magnitude());
+    // 			ImGui::Image(texture->texture->getTextureID(), ImVec2{static_cast<float>(texture->image.width) * 4, static_cast<float>(texture->image.height) * 4});
+    // 			ImGui::EndGroup();
+    // 			if (j != 3)
+    // 				ImGui::SameLine();
+    // 		}
+    // 	}
+    // }
+    // ImGui::EndChild();
+    // ImGui::End();
 }
 
 void destroy(const blt::gfx::window_data&)
 {
-	gpu_resources.reset();
-	global_matrices.cleanup();
-	resources.cleanup();
-	renderer_2d.cleanup();
-	blt::gfx::cleanup();
+    gpu_resources.reset();
+    global_matrices.cleanup();
+    resources.cleanup();
+    renderer_2d.cleanup();
+    blt::gfx::cleanup();
 }
 
 int main()
 {
-	blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
-
-	return 0;
+    blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
+    
+    return 0;
 }

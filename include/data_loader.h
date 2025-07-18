@@ -126,7 +126,7 @@ struct namespace_assets_t
 {
 	blt::hashmap_t<std::string, image_t> images;
 	blt::hashmap_t<std::string, image_t> non_solid_images;
-	blt::hashmap_t<std::string, biome_color> biome_colors;
+	blt::hashmap_t<std::string, biome_color_t> biome_colors;
 };
 
 struct assets_t
@@ -137,6 +137,8 @@ struct assets_t
 
 	explicit assets_t(database_t& db): db{&db}
 	{}
+    
+    std::vector<std::tuple<std::string, std::string>>& get_biomes();
 
 	template<typename... Types>
 	std::vector<std::tuple<Types...>> get_rows(const std::string& sql)

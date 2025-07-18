@@ -106,7 +106,7 @@ struct block_state_t
 	blt::hashmap_t<std::string, blt::hashset_t<std::string>> models;
 };
 
-struct biome_color
+struct biome_color_t
 {
 	blt::vec3 grass_color;
 	blt::vec3 leaves_color;
@@ -125,7 +125,7 @@ struct namespace_data_t
 	std::string texture_folder;
 
 	blt::hashmap_t<std::string, std::string> textures;
-	blt::hashmap_t<std::string, biome_color> biome_colors;
+	blt::hashmap_t<std::string, biome_color_t> biome_colors;
 };
 
 struct asset_data_t
