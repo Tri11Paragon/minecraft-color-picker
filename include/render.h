@@ -22,6 +22,8 @@
 #include <data_loader.h>
 #include <blt/gfx/texture.h>
 
+struct block_picker_data_t;
+
 struct gpu_image_t
 {
 	gpu_image_t() = default;
@@ -43,7 +45,7 @@ public:
 
 	blt::hashmap_t<std::string, blt::hashmap_t<std::string, gpu_image_t>> resources;
 
-	std::vector<std::pair<std::string, const gpu_image_t*>> get_icon_render_list();
+	std::vector<block_picker_data_t> get_icon_render_list();
 };
 
 #endif //RENDER_H

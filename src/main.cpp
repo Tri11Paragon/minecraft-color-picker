@@ -35,6 +35,99 @@ blt::gfx::first_person_camera_2d camera;
 assets_t assets;
 std::optional<gpu_asset_manager> gpu_resources;
 
+struct tab_data_t
+{
+	enum tab_type_t
+	{
+		UNCONFIGURED, COLOR_SELECT
+	};
+
+	explicit tab_data_t(const size_t id): tab_name("Unconfigured##" + std::to_string(id)), id(id)
+	{}
+
+	void render()
+	{
+		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+		{
+			ImGui::OpenPopup("RenameTab");
+			std::memcpy(buf, tab_name.data(), std::min(tab_name.size(), sizeof(buf)));
+			buf[sizeof(buf) - 1] = '\0';
+		}
+
+		if (ImGui::BeginPopup("RenameTab", ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 30);
+			ImGui::SetKeyboardFocusHere();
+			ImGui::Text("Rename Tab");
+			if (ImGui::InputText(("##rename" + std::to_string(id)).c_str(),
+								  buf, sizeof(buf),
+								  ImGuiInputTextFlags_EnterReturnsTrue |
+								  ImGuiInputTextFlags_AutoSelectAll))
+			{
+				tab_name = buf;
+				tab_name += "##";
+				tab_name += std::to_string(id);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+
+		ImVec2 avail = ImGui::GetContentRegionAvail();
+		switch (configured)
+		{
+			case UNCONFIGURED:
+			{
+				const float btnWidth = avail.x / 4.0f;
+				const float btnHeight = ImGui::GetFrameHeight() * 3;
+				const int btnCount = 4;
+				const float itemSpacingY = ImGui::GetStyle().ItemSpacing.y;
+
+				float menuWidth = btnWidth;
+				float menuHeight = btnCount * btnHeight + (btnCount - 1) * itemSpacingY;
+
+				ImVec2 cursorStart = ImGui::GetCursorPos();  // remember where we were
+
+				float offsetX = (avail.x - menuWidth) * 0.5f;
+				float offsetY = (avail.y - menuHeight) * 0.5f;
+
+				if (offsetX < 0)
+					offsetX = 0;
+				if (offsetY < 0)
+					offsetY = 0;
+
+				ImGui::SetCursorPos({cursorStart.x + offsetX, cursorStart.y + offsetY});
+
+				ImGui::BeginGroup();         // keep it together — lets us query size later
+				{
+					if (ImGui::Button("Color Picker", ImVec2(btnWidth, btnHeight)))
+					{
+						configured = COLOR_SELECT;
+						tab_name = "Color Picker##" + std::to_string(id);
+					}
+					if (ImGui::Button("Audio", ImVec2(btnWidth, btnHeight)))
+						/* … */;
+					if (ImGui::Button("Controls", ImVec2(btnWidth, btnHeight)))
+						/* … */;
+					if (ImGui::Button("Back", ImVec2(btnWidth, btnHeight)))
+						/* … */;
+				}
+				ImGui::EndGroup();
+			}
+			break;
+			case COLOR_SELECT:
+				break;
+		}
+	}
+
+	std::string tab_name = "Unconfigured";
+	tab_type_t configured = UNCONFIGURED;
+	char buf[64]{};
+	size_t id;
+};
+
+std::vector<tab_data_t> window_tabs;
+
 void init(const blt::gfx::window_data&)
 {
 	using namespace blt::gfx;
@@ -73,7 +166,7 @@ void update(const blt::gfx::window_data& data)
 
 	renderer_2d.render(data.width, data.height);
 
-	// ImGui::ShowDemoWindow(nullptr);
+	ImGui::ShowDemoWindow(nullptr);
 
 	const auto s = gpu_resources->get_icon_render_list();
 	if (auto block = show_block_picker(blt::vec2{200, 200}, s))
@@ -92,6 +185,46 @@ void update(const blt::gfx::window_data& data)
 	if (open_picker)
 		ImGui::OpenPopup("##BlockPicker");
 
+	ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)}, ImGuiCond_Always);
+	ImGui::SetNextWindowPos(ImVec2{0, 0}, ImGuiCond_Always);
+	ImGui::Begin("##Main", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
+	ImGui::BeginGroup();
+	auto avail = ImGui::GetContentRegionAvail();
+	if (ImGui::BeginChild("Control Panel", ImVec2(300, avail.y), ImGuiChildFlags_Border))
+	{}
+	ImGui::EndChild();
+	ImGui::EndGroup();
+	ImGui::SameLine();
+	avail = ImGui::GetContentRegionAvail();
+	if (ImGui::BeginChild("MainTabs", avail, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+	{
+		static size_t next_tab_id = 0;
+		if (ImGui::BeginTabBar(
+			"Color Views", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
+		{
+			if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
+				window_tabs.emplace_back(next_tab_id++);
+
+			for (size_t n = 0; n < window_tabs.size();)
+			{
+				bool open = true;
+				if (ImGui::BeginTabItem(window_tabs[n].tab_name.c_str(), &open, ImGuiTabItemFlags_None))
+				{
+					window_tabs[n].render();
+					ImGui::EndTabItem();
+				}
+
+				if (!open)
+					window_tabs.erase(window_tabs.begin() + n);
+				else
+					n++;
+			}
+
+			ImGui::EndTabBar();
+		}
+	}
+	ImGui::EndChild();
+	ImGui::End();
 
 	// ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)});
 	// ImGui::SetNextWindowPos(ImVec2{0, 0});

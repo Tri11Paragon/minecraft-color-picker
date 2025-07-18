@@ -19,6 +19,7 @@
 #ifndef DATA_LOADER_H
 #define DATA_LOADER_H
 
+#include <asset_loader.h>
 #include <sql.h>
 #include <filesystem>
 #include <blt/math/vectors.h>
@@ -121,12 +122,17 @@ struct image_t
 	}
 };
 
+struct namespace_assets_t
+{
+	blt::hashmap_t<std::string, image_t> images;
+	blt::hashmap_t<std::string, image_t> non_solid_images;
+	blt::hashmap_t<std::string, biome_color> biome_colors;
+};
+
 struct assets_t
 {
 	database_t* db = nullptr;
-	blt::hashmap_t<std::string, blt::hashmap_t<std::string, image_t>> images;
-	blt::hashmap_t<std::string, blt::hashmap_t<std::string, image_t>> non_solid_images;
-
+	blt::hashmap_t<std::string, namespace_assets_t> assets;
 	assets_t() = default;
 
 	explicit assets_t(database_t& db): db{&db}

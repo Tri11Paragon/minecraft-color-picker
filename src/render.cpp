@@ -15,13 +15,14 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+#include <block_picker.h>
 #include <render.h>
 
 gpu_asset_manager::gpu_asset_manager(assets_t assets)
 {
-	for (auto& [namespace_str, images] : assets.images)
+	for (auto& [namespace_str, data] : assets.assets)
 	{
-		for (auto& [image_name, image] : images)
+		for (auto& [image_name, image] : data.images)
 		{
 			auto texture = std::make_unique<blt::gfx::texture_gl2D>(image.width, image.height);
 			texture->bind();
@@ -36,9 +37,9 @@ gpu_asset_manager::gpu_asset_manager(assets_t assets)
 	}
 }
 
-std::vector<std::pair<std::string, const gpu_image_t*>> gpu_asset_manager::get_icon_render_list()
+std::vector<block_picker_data_t> gpu_asset_manager::get_icon_render_list()
 {
-	std::vector<std::pair<std::string, const gpu_image_t*>> ret;
+	std::vector<block_picker_data_t> ret;
 	for (const auto& [namespace_str, map] : resources)
 	{
 		for (const auto& [texture_str, gpu_image] : map)

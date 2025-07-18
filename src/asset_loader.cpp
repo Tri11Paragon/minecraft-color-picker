@@ -38,7 +38,8 @@ struct search_for_t
 		objects.push_back(obj);
 	}
 
-	std::optional<std::string> next()
+	template<typename T = std::string>
+	std::optional<T> next()
 	{
 		while (true)
 		{
@@ -69,7 +70,7 @@ struct search_for_t
 					++*current_iter;
 					continue;
 				}
-				auto str = iter().value().get<std::string>();
+				auto str = iter().value().get<T>();
 				++*current_iter;
 				return str;
 			}
@@ -139,8 +140,11 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 		{
 			if (!entry.is_directory())
 				continue;
-			if (!tags_folder && entry.path().compare("tags") == 0)
+			if (entry.path().filename().compare("tags") == 0)
+			{
 				tags_folder = entry.path();
+				break;
+			}
 		}
 	}
 
@@ -327,6 +331,62 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 				data.json_data[namespace_name.string()].block_states[block_name].models[namespace_str].insert(model_str);
 			}
 		}
+
+		struct color
+		{
+			static blt::vec3 cvtColor(const int decimal)
+			{
+				std::stringstream ss;
+				ss << std::hex << decimal;
+				auto hex = ss.str();
+				while (hex.size() < 6)
+					hex = std::string("0").append(hex);
+				blt::vec3 color;
+				color[0] = static_cast<float>(std::stoi(hex.substr(0, 2), nullptr, 16)) / 255;
+				color[1] = static_cast<float>(std::stoi(hex.substr(2, 2), nullptr, 16)) / 255;
+				color[2] = static_cast<float>(std::stoi(hex.substr(4, 2), nullptr, 16)) / 255;
+				return color;
+			}
+		};
+
+		for (const auto& entry : std::filesystem::recursive_directory_iterator{*biomes_folder})
+		{
+			if (!entry.is_regular_file())
+				continue;
+			if (entry.path().has_extension() && entry.path().extension().compare(".json") != 0)
+				continue;
+			auto biome_name = entry.path().stem().string();
+
+			std::ifstream json_file(entry.path());
+			json jdata = json::parse(json_file);
+
+			blt::vec3 grass_color{0.48627450980392156, 0.7411764705882353, 0.4196078431372549};
+			search_for_t search_grass{jdata, "grass_color"};
+			if (auto value = search_grass.next<int>())
+			{
+				grass_color = color::cvtColor(*value);
+			} else
+			{
+				search_for_t search_grass2{jdata, "grass_color_modifier"};
+				if (auto value = search_grass2.next()) // NOLINT
+				{
+					if (*value == "dark_forest")
+						grass_color = {0.3137254901960784, 0.47843137254901963, 0.19607843137254902};
+					else if (*value == "swamp")
+						grass_color = {0.41568627450980394, 0.4392156862745098, 0.2235294117647059};
+					else
+						BLT_WARN("Unknown grass type {}", *value);
+				}
+			}
+
+			blt::vec3 foliage_color{0.2823529411764706, 0.7098039215686275, 0.09411764705882353};
+			search_for_t search_leaves{jdata, "foliage_color"};
+
+			if (auto value = search_leaves.next<int>())
+				foliage_color = color::cvtColor(*value);
+
+			data.json_data[namespace_name.string()].biome_colors[biome_name] = {grass_color, foliage_color};
+		}
 	}
 
 	std::vector<namespaced_object> textures_to_load;
@@ -485,6 +545,32 @@ database_t& asset_loader_t::load_textures()
 			}
 		}
 	}
+	BLT_INFO("[Phase 2] Saving biome data");
+
+	auto biome_color_table = db.builder().create_table("biome_color");
+	biome_color_table.with_column<std::string>("namespace").primary_key();
+	biome_color_table.with_column<std::string>("biome").primary_key();
+	biome_color_table.with_column<float>("grass_r");
+	biome_color_table.with_column<float>("grass_g");
+	biome_color_table.with_column<float>("grass_b");
+	biome_color_table.with_column<float>("leaves_r");
+	biome_color_table.with_column<float>("leaves_g");
+	biome_color_table.with_column<float>("leaves_b");
+	biome_color_table.build().execute();
+
+	auto insert_all = db.prepare("INSERT INTO biome_color VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+
+	for (const auto& [namespace_str, data] : data.json_data)
+	{
+		for (const auto& [biome, colors] : data.biome_colors)
+		{
+			insert_all.bind().bind_all(namespace_str, biome, colors.grass_color[0], colors.grass_color[1], colors.grass_color[2],
+										colors.leaves_color[0], colors.leaves_color[1], colors.leaves_color[2]);
+			if (insert_all.execute().has_error())
+				BLT_WARN("Unable to insert into {}:{} reason '{}'", namespace_str, biome, db.get_error());
+		}
+	}
+
 	BLT_INFO("Finished loading assets");
 
 	return db;
@@ -530,6 +616,8 @@ std::string block_pretty_name(std::string block_name)
 	if (block_name.empty())
 		return block_name;
 	size_t pos;
+	if ((pos = block_name.find("/")) != std::string::npos)
+		block_name = block_name.substr(pos + 1);
 	while ((pos = block_name.find('_')) != std::string::npos)
 	{
 		block_name[pos] = ' ';

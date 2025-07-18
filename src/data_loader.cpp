@@ -36,7 +36,7 @@ database_t load_database(const std::filesystem::path& path)
 assets_t data_loader_t::load()
 {
 	constexpr auto SQL = "SELECT * FROM solid_textures";
-	const auto stmt = db.prepare(SQL);
+	auto stmt = db.prepare(SQL);
 
 	assets_t assets{db};
 
@@ -48,12 +48,25 @@ assets_t data_loader_t::load()
 
 		const auto size_floats = width * height * 4;
 
-		auto& namespace_hash = assets.images[namespace_str];
+		auto& namespace_hash = assets.assets[namespace_str].images;
 		auto& image = namespace_hash[name];
 		image.width = width;
 		image.height = height;
 		image.data.resize(size_floats);
 		std::memcpy(image.data.data(), ptr, size_floats * sizeof(float));
+	}
+
+	stmt = db.prepare("SELECT * FROM biome_color");
+	while (stmt.execute().has_row())
+	{
+		auto column = stmt.fetch();
+		const auto [namespace_str, biome, grass_r, grass_g, grass_b, leaves_r, leaves_g, leaves_b] = column.get<
+			std::string, std::string, float, float, float, float, float, float>();
+
+		const blt::vec3 grass{grass_r, grass_g, grass_b};
+		const blt::vec3 leaves{leaves_r, leaves_g, leaves_b};
+
+		assets.assets[namespace_str].biome_colors[biome] = {grass, leaves};
 	}
 
 	return assets;
