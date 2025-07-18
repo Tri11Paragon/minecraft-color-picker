@@ -63,6 +63,10 @@ std::vector<block_picker_data_t> gpu_asset_manager::get_icon_render_list()
         for (const auto& [texture_str, gpu_image] : map)
             ret.emplace_back(texture_str, &gpu_image);
     }
+    for (const auto& [namespace_str, map] : non_solid_resources) {
+        for (const auto& [texture_str, gpu_image] : map)
+            ret.emplace_back(texture_str, &gpu_image);
+    }
     return ret;
 }
 
@@ -75,7 +79,7 @@ inline float srgb_to_linear(const float v) noexcept
 
 void gpu_asset_manager::update_textures(biome_color_t color)
 {
-    static auto stmt = assets->db->prepare("SELECT b.namespace, b.block_name, s"
+    static auto stmt = assets->db->prepare("SELECT DISTINCT b.namespace, b.block_name, s"
                                            ".namespace, s"
                                            ".name, s"
                                            ".width, s.height FROM solid_textures AS s, "
@@ -95,7 +99,9 @@ void gpu_asset_manager::update_textures(biome_color_t color)
         "minecraft:jungle_leaves",
         "minecraft:acacia_leaves",
         "minecraft:dark_oak_leaves",
-        "minecraft:mangrove_leaves"
+        "minecraft:mangrove_leaves",
+        "minecraft:spruce_leaves",
+        "minecraft:birch_leaves"
     };
     for (const auto& [block_namespace, block_name, namespace_str, texture_name, width, height] : rows) {
         auto fullname = block_namespace + ":" + block_name;
@@ -112,7 +118,7 @@ void gpu_asset_manager::update_textures(biome_color_t color)
         if (fill_color){
             if (texture_name == "block/grass_block_snow")
                 continue;
-            BLT_TRACE("Updating block {} with model {}:{}", fullname, namespace_str, texture_name);
+            // BLT_TRACE("Updating block {} with model {}:{}", fullname, namespace_str, texture_name);
             
             auto& map = resources[namespace_str][texture_name];
             map.image.width = width;
