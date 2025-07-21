@@ -132,7 +132,7 @@ struct tab_data_t
 			break;
 			case COLOR_SELECT:
 			{
-				ImGui::BeginChild("##Selector", ImVec2(0, 0));
+				ImGui::BeginChild("##Selector", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
 				if (ImGui::ColorPicker3("##SelectBlocks", color_picker_data,
 										ImGuiColorEditFlags_InputRGB | ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_PickerHueWheel))
 					skipped_index.clear();
@@ -219,9 +219,22 @@ struct tab_data_t
 							"block_names.model_namespace=models.namespace AND block_names.model=models.model " "ORDER BY block_names.block_name");
 						asset_rows = assets.get_rows<std::string, std::string>(stmt);
 					}
-					auto scale = static_cast<int>(avail.x / (16 * 4));
+					const auto scale = static_cast<int>(avail.x / (16 * 5));
 
-					for (const auto& [i, namespace_str, texture_name] : blt::enumerate(*asset_rows).flatten())
+					static auto delete_models_stmt = assets.db->prepare("DELETE FROM models WHERE texture_namespace=? AND texture=?");
+
+					static auto delete_textures_stmt = assets.db->prepare("DELETE FROM non_solid_textures WHERE namespace=? AND name=?");
+
+					static auto delete_textures2_stmt = assets.db->prepare("DELETE FROM solid_textures WHERE namespace=? AND name=?");
+
+					static auto delete_blocks_stmt = assets.db->prepare("DELETE FROM block_names WHERE "
+							"(SELECT COUNT(*) "
+								"FROM models WHERE models.namespace=block_names.model_namespace AND models.model=block_names.model) = 0");
+
+					const std::array<statement_t*, 4> statements{&delete_models_stmt, &delete_textures_stmt, &delete_textures2_stmt, &delete_blocks_stmt};
+
+					int counter = 0;
+					for (const auto& [namespace_str, texture_name] : *asset_rows)
 					{
 						if (!gpu_resources->resources.contains(namespace_str))
 							continue;
@@ -238,10 +251,81 @@ struct tab_data_t
 							ImGui::Text("%s", block_pretty_name(texture_name).c_str());
 							ImGui::EndTooltip();
 						}
-						ImGui::EndGroup
-						();
-						if (i % scale != scale - 1)
+						if (ImGui::BeginPopupContextItem(std::to_string(counter).c_str()))
+						{
+							ImGui::Text("%s", block_pretty_name(texture_name).c_str());
+							ImGui::Separator();
+							if (ImGui::Button("DELETE PERMANENTLY"))
+							{
+								for (const auto stmt : statements)
+								{
+									stmt->bind().bind_all(namespace_str, texture_name);
+									if (const auto res = stmt->execute(); res.has_error())
+										BLT_ERROR("Failed to delete texture {}:{}. Reason '{}'", namespace_str, texture_name, assets.db->get_error());
+								}
+								asset_rows.reset();
+								ImGui::CloseCurrentPopup();
+								ImGui::EndPopup();
+								ImGui::EndGroup();
+								ImGui::EndChild();
+								return;
+							}
+							ImGui::Separator();
+							if (ImGui::Button("Close"))
+								ImGui::CloseCurrentPopup();
+							ImGui::EndPopup();
+						}
+						ImGui::EndGroup();
+						if (counter % scale != scale - 1)
 							ImGui::SameLine();
+						++counter;
+					}
+
+					for (const auto& [i, namespace_str, texture_name] : blt::enumerate(*asset_rows).flatten())
+					{
+						if (!gpu_resources->non_solid_resources.contains(namespace_str))
+							continue;
+						if (!gpu_resources->non_solid_resources[namespace_str].contains(texture_name))
+							continue;
+						const auto& image = gpu_resources->non_solid_resources[namespace_str][texture_name];
+						ImGui::BeginGroup();
+						ImGui::Image(image.texture->getTextureID(), ImVec2{
+										static_cast<float>(image.image.width) * 4, static_cast<float>(image.image.height) * 4
+									});
+						if (ImGui::IsItemHovered())
+						{
+							ImGui::BeginTooltip();
+							ImGui::Text("%s", block_pretty_name(texture_name).c_str());
+							ImGui::EndTooltip();
+						}
+						if (ImGui::BeginPopupContextItem(std::to_string(counter).c_str()))
+						{
+							ImGui::Text("%s", block_pretty_name(texture_name).c_str());
+							ImGui::Separator();
+							if (ImGui::Button("DELETE PERMANENTLY"))
+							{
+								for (const auto stmt : statements)
+								{
+									stmt->bind().bind_all(namespace_str, texture_name);
+									if (const auto res = stmt->execute(); res.has_error())
+										BLT_ERROR("Failed to delete texture {}:{}. Reason '{}'", namespace_str, texture_name, assets.db->get_error());
+								}
+								asset_rows.reset();
+								ImGui::CloseCurrentPopup();
+								ImGui::EndPopup();
+								ImGui::EndGroup();
+								ImGui::EndChild();
+								return;
+							}
+							ImGui::Separator();
+							if (ImGui::Button("Close"))
+								ImGui::CloseCurrentPopup();
+							ImGui::EndPopup();
+						}
+						ImGui::EndGroup();
+						if (counter % scale != scale - 1)
+							ImGui::SameLine();
+						++counter;
 					}
 				}
 				ImGui::EndChild();
