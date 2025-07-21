@@ -28,12 +28,12 @@
 #include <render.h>
 #include <themes.h>
 
-blt::gfx::matrix_state_manager global_matrices;
-blt::gfx::resource_manager resources;
-blt::gfx::batch_renderer_2d renderer_2d(resources, global_matrices);
+blt::gfx::matrix_state_manager   global_matrices;
+blt::gfx::resource_manager       resources;
+blt::gfx::batch_renderer_2d      renderer_2d(resources, global_matrices);
 blt::gfx::first_person_camera_2d camera;
 
-assets_t assets;
+assets_t                         assets;
 std::optional<gpu_asset_manager> gpu_resources;
 
 static void HelpMarker(const std::string& desc)
@@ -48,6 +48,7 @@ static void HelpMarker(const std::string& desc)
 	}
 }
 
+
 struct tab_data_t
 {
 	enum tab_type_t
@@ -55,8 +56,11 @@ struct tab_data_t
 		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER
 	};
 
-	explicit tab_data_t(const size_t id, std::vector<tab_data_t>& tabs): tab_name("Unconfigured##" + std::to_string(id)), id(id), tabs{&tabs}
-	{}
+
+	explicit tab_data_t(const size_t id, std::vector<tab_data_t>& tabs):
+		tab_name("Unconfigured##" + std::to_string(id)),
+		id(id),
+		tabs{&tabs} {}
 
 	void render()
 	{
@@ -73,8 +77,10 @@ struct tab_data_t
 			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 30);
 			ImGui::SetKeyboardFocusHere();
 			ImGui::Text("Rename Tab");
-			if (ImGui::InputText(("##rename" + std::to_string(id)).c_str(), buf, sizeof(buf),
-								ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
+			if (ImGui::InputText(("##rename" + std::to_string(id)).c_str(),
+								 buf,
+								 sizeof(buf),
+								 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
 			{
 				tab_name = buf;
 				tab_name += "##";
@@ -89,12 +95,12 @@ struct tab_data_t
 		{
 			case UNCONFIGURED:
 			{
-				const float btnWidth = avail.x / 4.0f;
-				const float btnHeight = ImGui::GetFrameHeight() * 3;
-				const int btnCount = 4;
+				const float btnWidth     = avail.x / 4.0f;
+				const float btnHeight    = ImGui::GetFrameHeight() * 3;
+				const int   btnCount     = 4;
 				const float itemSpacingY = ImGui::GetStyle().ItemSpacing.y;
 
-				float menuWidth = btnWidth;
+				float menuWidth  = btnWidth;
 				float menuHeight = btnCount * btnHeight + (btnCount - 1) * itemSpacingY;
 
 				ImVec2 cursorStart = ImGui::GetCursorPos();  // remember where we were
@@ -114,7 +120,7 @@ struct tab_data_t
 					if (ImGui::Button("Color Picker", ImVec2(btnWidth, btnHeight)))
 					{
 						configured = COLOR_SELECT;
-						tab_name = "Color Picker##" + std::to_string(id);
+						tab_name   = "Color Picker##" + std::to_string(id);
 					}
 
 					if (ImGui::Button("Audio", ImVec2(btnWidth, btnHeight)))
@@ -124,7 +130,7 @@ struct tab_data_t
 					if (ImGui::Button("Browser", ImVec2(btnWidth, btnHeight)))
 					{
 						configured = ASSET_BROWSER;
-						tab_name = "Browser##" + std::to_string(id);
+						tab_name   = "Browser##" + std::to_string(id);
 					}
 				}
 				ImGui::EndGroup();
@@ -133,8 +139,10 @@ struct tab_data_t
 			case COLOR_SELECT:
 			{
 				ImGui::BeginChild("##Selector", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
-				if (ImGui::ColorPicker3("##SelectBlocks", color_picker_data,
-										ImGuiColorEditFlags_InputRGB | ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_PickerHueWheel))
+				if (ImGui::ColorPicker3("##SelectBlocks",
+										color_picker_data,
+										ImGuiColorEditFlags_InputRGB | ImGuiColorEditFlags_PickerHueBar |
+										ImGuiColorEditFlags_PickerHueWheel))
 					skipped_index.clear();
 				ImGui::EndChild();
 				// what a distastefully arrogant way to look at things. you wonder why people suddenly don't want to be your friend
@@ -144,9 +152,9 @@ struct tab_data_t
 
 				struct ordering_t
 				{
-					std::string name;
+					std::string        name;
 					const gpu_image_t* texture;
-					blt::vec3 dist;
+					blt::vec3          dist;
 				};
 
 				std::vector<ordering_t> ordered_images;
@@ -154,35 +162,38 @@ struct tab_data_t
 				{
 					for (const auto& [name, images] : data)
 					{
-						auto image_sampler = interface_generator(images.image);
-						const auto dist = comparator.compare(sampler, *image_sampler);
+						auto       image_sampler = interface_generator(images.image);
+						const auto dist          = comparator.compare(sampler, *image_sampler);
 						ordered_images.push_back(ordering_t{namespace_str + ":" += name, &images, dist});
 					}
 				}
-				std::sort(ordered_images.begin(), ordered_images.end(), [](const auto& a, const auto& b) {
-					auto& [a_name, a_texture, a_dist] = a;
-					auto& [b_name, b_texture, b_dist] = b;
-					return b_dist.magnitude() > a_dist.magnitude();
-				});
+				std::sort(ordered_images.begin(),
+						  ordered_images.end(),
+						  [](const auto& a, const auto& b) {
+							  auto& [a_name, a_texture, a_dist] = a;
+							  auto& [b_name, b_texture, b_dist] = b;
+							  return b_dist.magnitude() > a_dist.magnitude();
+						  });
 
 				ImGui::BeginChild("##Selector", ImVec2(0, 0), ImGuiChildFlags_AlwaysAutoResize);
 				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
 				ImGui::InputInt("Images to Display", &images);
-				int index = 0;
+				int  index           = 0;
 				auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
 				for (int i = 0; i < images; i++)
 				{
 					if (index >= ordered_images.size())
 						continue;
-					while (skipped_index.contains(index))
-					{
-						++index;
-					}
+					while (skipped_index.contains(index)) { ++index; }
 					auto& [name, texture, distance] = ordered_images[index];
 					ImGui::BeginGroup();
-					ImGui::Image(texture->texture->getTextureID(), ImVec2{
-									static_cast<float>(texture->image.width) * 4, static_cast<float>(texture->image.height) * 4
-								});
+					ImGui::Text("(%f,%f,%f)", distance[0], distance[1], distance[2]);
+					ImGui::Text("(Mag: %f)", distance.magnitude());
+					ImGui::Image(texture->texture->getTextureID(),
+								 ImVec2{
+									 static_cast<float>(texture->image.width) * 4,
+									 static_cast<float>(texture->image.height) * 4
+								 });
 					ImGui::EndGroup();
 					if (ImGui::IsItemHovered())
 					{
@@ -215,23 +226,32 @@ struct tab_data_t
 					if (!asset_rows)
 					{
 						static auto stmt = assets.db->prepare(
-							"SELECT DISTINCT models.texture_namespace, models.texture " "FROM models INNER JOIN block_names ON "
-							"block_names.model_namespace=models.namespace AND block_names.model=models.model " "ORDER BY block_names.block_name");
+							"SELECT DISTINCT models.texture_namespace, models.texture "
+							"FROM models INNER JOIN block_names ON "
+							"block_names.model_namespace=models.namespace AND block_names.model=models.model "
+							"ORDER BY block_names.block_name");
 						asset_rows = assets.get_rows<std::string, std::string>(stmt);
 					}
 					const auto scale = static_cast<int>(avail.x / (16 * 5));
 
-					static auto delete_models_stmt = assets.db->prepare("DELETE FROM models WHERE texture_namespace=? AND texture=?");
+					static auto delete_models_stmt = assets.db->prepare(
+						"DELETE FROM models WHERE texture_namespace=? AND texture=?");
 
-					static auto delete_textures_stmt = assets.db->prepare("DELETE FROM non_solid_textures WHERE namespace=? AND name=?");
+					static auto delete_textures_stmt = assets.db->prepare(
+						"DELETE FROM non_solid_textures WHERE namespace=? AND name=?");
 
-					static auto delete_textures2_stmt = assets.db->prepare("DELETE FROM solid_textures WHERE namespace=? AND name=?");
+					static auto delete_textures2_stmt = assets.db->prepare(
+						"DELETE FROM solid_textures WHERE namespace=? AND name=?");
 
 					static auto delete_blocks_stmt = assets.db->prepare("DELETE FROM block_names WHERE "
-							"(SELECT COUNT(*) "
-								"FROM models WHERE models.namespace=block_names.model_namespace AND models.model=block_names.model) = 0");
+						"(SELECT COUNT(*) "
+						"FROM models WHERE models.namespace=block_names.model_namespace AND models.model=block_names.model) = 0");
 
-					const std::array<statement_t*, 4> statements{&delete_models_stmt, &delete_textures_stmt, &delete_textures2_stmt, &delete_blocks_stmt};
+					const std::array<statement_t*, 4> statements{
+						&delete_models_stmt,
+						&delete_textures_stmt,
+						&delete_textures2_stmt,
+						&delete_blocks_stmt};
 
 					int counter = 0;
 					for (const auto& [namespace_str, texture_name] : *asset_rows)
@@ -242,9 +262,11 @@ struct tab_data_t
 							continue;
 						const auto& image = gpu_resources->resources[namespace_str][texture_name];
 						ImGui::BeginGroup();
-						ImGui::Image(image.texture->getTextureID(), ImVec2{
-										static_cast<float>(image.image.width) * 4, static_cast<float>(image.image.height) * 4
-									});
+						ImGui::Image(image.texture->getTextureID(),
+									 ImVec2{
+										 static_cast<float>(image.image.width) * 4,
+										 static_cast<float>(image.image.height) * 4
+									 });
 						if (ImGui::IsItemHovered())
 						{
 							ImGui::BeginTooltip();
@@ -261,7 +283,10 @@ struct tab_data_t
 								{
 									stmt->bind().bind_all(namespace_str, texture_name);
 									if (const auto res = stmt->execute(); res.has_error())
-										BLT_ERROR("Failed to delete texture {}:{}. Reason '{}'", namespace_str, texture_name, assets.db->get_error());
+										BLT_ERROR("Failed to delete texture {}:{}. Reason '{}'",
+											  namespace_str,
+											  texture_name,
+											  assets.db->get_error());
 								}
 								asset_rows.reset();
 								ImGui::CloseCurrentPopup();
@@ -289,9 +314,11 @@ struct tab_data_t
 							continue;
 						const auto& image = gpu_resources->non_solid_resources[namespace_str][texture_name];
 						ImGui::BeginGroup();
-						ImGui::Image(image.texture->getTextureID(), ImVec2{
-										static_cast<float>(image.image.width) * 4, static_cast<float>(image.image.height) * 4
-									});
+						ImGui::Image(image.texture->getTextureID(),
+									 ImVec2{
+										 static_cast<float>(image.image.width) * 4,
+										 static_cast<float>(image.image.height) * 4
+									 });
 						if (ImGui::IsItemHovered())
 						{
 							ImGui::BeginTooltip();
@@ -308,7 +335,10 @@ struct tab_data_t
 								{
 									stmt->bind().bind_all(namespace_str, texture_name);
 									if (const auto res = stmt->execute(); res.has_error())
-										BLT_ERROR("Failed to delete texture {}:{}. Reason '{}'", namespace_str, texture_name, assets.db->get_error());
+										BLT_ERROR("Failed to delete texture {}:{}. Reason '{}'",
+											  namespace_str,
+											  texture_name,
+											  assets.db->get_error());
 								}
 								asset_rows.reset();
 								ImGui::CloseCurrentPopup();
@@ -335,19 +365,20 @@ struct tab_data_t
 
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
 
-	std::string tab_name = "Unconfigured";
-	tab_type_t configured = UNCONFIGURED;
-	char buf[64]{};
-	float color_picker_data[3]{};
-	blt::hashset_t<int> skipped_index;
-	int images = 16;
-	size_t id;
+	std::string                                                         tab_name   = "Unconfigured";
+	tab_type_t                                                          configured = UNCONFIGURED;
+	char                                                                buf[64]{};
+	float                                                               color_picker_data[3]{};
+	blt::hashset_t<int>                                                 skipped_index;
+	int                                                                 images = 16;
+	size_t                                                              id;
 	std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> interface_generator = [](const auto& image) {
 		return std::make_unique<sampler_oklab_op_t>(image);
 	};
 
 	std::vector<tab_data_t>* tabs;
 };
+
 
 std::vector<tab_data_t> window_tabs;
 
@@ -368,12 +399,9 @@ void init(const blt::gfx::window_data&)
 		}
 
 		db = std::move(loader.load_textures());
-	} else
-	{
-		db = load_database("1.21.5.assets");
-	}
+	} else { db = load_database("1.21.5.assets"); }
 	static data_loader_t loader{std::move(*db)};
-	assets = loader.load();
+	assets        = loader.load();
 	gpu_resources = gpu_asset_manager{assets};
 
 	global_matrices.create_internals();
@@ -400,9 +428,12 @@ void update(const blt::gfx::window_data& data)
 
 	ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)}, ImGuiCond_Always);
 	ImGui::SetNextWindowPos(ImVec2{0, 0}, ImGuiCond_Always);
-	ImGui::Begin("##Main", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
+	ImGui::Begin("##Main",
+				 nullptr,
+				 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+				 ImGuiWindowFlags_NoTitleBar);
 	ImGui::BeginGroup();
-	auto avail = ImGui::GetContentRegionAvail();
+	auto avail       = ImGui::GetContentRegionAvail();
 	bool should_open = false;
 	if (ImGui::BeginChild("Control Panel", ImVec2(300, avail.y), ImGuiChildFlags_Border))
 	{
@@ -413,9 +444,12 @@ void update(const blt::gfx::window_data& data)
 		HelpMarker("Select a biome to view grass, leaves, etc with their respective textures.");
 		if (ImGui::BeginListBox("##Biomes"))
 		{
-			auto& biomes_vec = assets.get_biomes();
-			static size_t item_selected_idx = std::distance(biomes_vec.begin(), std::find_if(
-																biomes_vec.begin(), biomes_vec.end(), [&](const auto& item) {
+			auto&         biomes_vec        = assets.get_biomes();
+			static size_t item_selected_idx = std::distance(biomes_vec.begin(),
+															std::find_if(
+																biomes_vec.begin(),
+																biomes_vec.end(),
+																[&](const auto& item) {
 																	return std::get<1>(item) == "plains";
 																}));
 			for (const auto& [i, namespace_str, biome] : blt::enumerate(biomes_vec).flatten())
@@ -432,10 +466,7 @@ void update(const blt::gfx::window_data& data)
 			ImGui::EndListBox();
 		}
 		ImGui::Separator();
-		if (ImGui::Button("Silly"))
-		{
-			should_open = true;
-		}
+		if (ImGui::Button("Silly")) { should_open = true; }
 	}
 	ImGui::EndChild();
 	ImGui::EndGroup();
@@ -445,7 +476,8 @@ void update(const blt::gfx::window_data& data)
 	{
 		static size_t next_tab_id = 1;
 		if (ImGui::BeginTabBar(
-			"Color Views", ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
+			"Color Views",
+			ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
 		{
 			if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
 				window_tabs.emplace_back(next_tab_id++, window_tabs);
