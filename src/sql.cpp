@@ -20,7 +20,7 @@
 
 statement_t::statement_t(sqlite3* db, const std::string& stmt): db{db}
 {
-	if (sqlite3_prepare_v2(db, stmt.c_str(), stmt.size(), &statement, nullptr) != SQLITE_OK)
+	if (sqlite3_prepare_v2(db, stmt.c_str(), static_cast<int>(stmt.size()), &statement, nullptr) != SQLITE_OK)
 		BLT_ERROR("Failed to create statement object '{}' cause '{}'", stmt, sqlite3_errmsg(db));
 }
 
