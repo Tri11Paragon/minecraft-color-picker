@@ -27,8 +27,8 @@ database_t load_database(const std::filesystem::path& path)
 
 assets_t data_loader_t::load()
 {
-	constexpr auto SQL = "SELECT * FROM solid_textures";
-	auto stmt = db.prepare(SQL);
+	constexpr auto SQL  = "SELECT * FROM solid_textures";
+	auto           stmt = db.prepare(SQL);
 
 	assets_t assets{db};
 
@@ -36,14 +36,15 @@ assets_t data_loader_t::load()
 	{
 		auto column = stmt.fetch();
 
-		const auto [namespace_str, name, width, height, ptr] = column.get<std::string, std::string, blt::i32, blt::i32, const std::byte*>();
+		const auto [namespace_str, name, width, height, ptr] = column.get<
+			std::string, std::string, blt::i32, blt::i32, const std::byte*>();
 
 		const auto size_floats = width * height * 4;
 
 		auto& namespace_hash = assets.assets[namespace_str].images;
-		auto& image = namespace_hash[name];
-		image.width = width;
-		image.height = height;
+		auto& image          = namespace_hash[name];
+		image.width          = width;
+		image.height         = height;
 		image.data.resize(size_floats);
 		std::memcpy(image.data.data(), ptr, size_floats * sizeof(float));
 	}
@@ -54,14 +55,15 @@ assets_t data_loader_t::load()
 	{
 		auto column = stmt.fetch();
 
-		const auto [namespace_str, name, width, height, ptr] = column.get<std::string, std::string, blt::i32, blt::i32, const std::byte*>();
+		const auto [namespace_str, name, width, height, ptr] = column.get<
+			std::string, std::string, blt::i32, blt::i32, const std::byte*>();
 
 		const auto size_floats = width * height * 4;
 
 		auto& namespace_hash = assets.assets[namespace_str].non_solid_images;
-		auto& image = namespace_hash[name];
-		image.width = width;
-		image.height = height;
+		auto& image          = namespace_hash[name];
+		image.width          = width;
+		image.height         = height;
 		image.data.resize(size_floats);
 		std::memcpy(image.data.data(), ptr, size_floats * sizeof(float));
 	}
@@ -70,7 +72,7 @@ assets_t data_loader_t::load()
 	stmt.bind();
 	while (stmt.execute().has_row())
 	{
-		auto column = stmt.fetch();
+		auto       column                                                                          = stmt.fetch();
 		const auto [namespace_str, biome, grass_r, grass_g, grass_b, leaves_r, leaves_g, leaves_b] = column.get<
 			std::string, std::string, float, float, float, float, float, float>();
 
@@ -91,16 +93,17 @@ sampler_oklab_op_t::sampler_oklab_op_t(const image_t& image, const blt::i32 samp
 	{
 		for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
 		{
-			float alpha = 0;
+			float     alpha = 0;
 			blt::vec3 average;
-			blt::i32 y = y_step * y_pos;
-			blt::i32 x = x_step * x_pos;
+			blt::i32  y = y_step * y_pos;
+			blt::i32  x = x_step * x_pos;
 			for (; y < std::min(image.height, y_step * (y_pos + 1)); y++)
 			{
 				for (; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
 					const blt::vec3 value{
-						image.data[(y * image.width + x) * 4 + 0], image.data[(y * image.width + x) * 4 + 1],
+						image.data[(y * image.width + x) * 4 + 0],
+						image.data[(y * image.width + x) * 4 + 1],
 						image.data[(y * image.width + x) * 4 + 2]
 					};
 
@@ -124,16 +127,17 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 	{
 		for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
 		{
-			float alpha = 0;
+			float     alpha = 0;
 			blt::vec3 average;
-			blt::i32 y = y_step * y_pos;
-			blt::i32 x = x_step * x_pos;
+			blt::i32  y = y_step * y_pos;
+			blt::i32  x = x_step * x_pos;
 			for (; y < std::min(image.height, y_step * (y_pos + 1)); y++)
 			{
 				for (; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
 					const blt::vec3 value{
-						image.data[(y * image.width + x) * 4 + 0], image.data[(y * image.width + x) * 4 + 1],
+						image.data[(y * image.width + x) * 4 + 0],
+						image.data[(y * image.width + x) * 4 + 1],
 						image.data[(y * image.width + x) * 4 + 2]
 					};
 
@@ -149,31 +153,33 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 	}
 }
 
-sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& image, const std::vector<blt::vec3>& average_color,
-															const blt::i32 samples)
+sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t&                image,
+															 const std::vector<blt::vec3>& average_color,
+															 const blt::i32                samples)
 {
-	blt::i32 current_sample = 0;
-	const auto x_step = image.width / samples;
-	const auto y_step = image.height / samples;
+	blt::i32   current_sample = 0;
+	const auto x_step         = image.width / samples;
+	const auto y_step         = image.height / samples;
 	for (blt::i32 x_pos = 0; x_pos < samples; x_pos++)
 	{
 		for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
 		{
-			float alpha = 0;
+			float     alpha = 0;
 			blt::vec3 color_difference;
-			blt::i32 y = y_step * y_pos;
-			blt::i32 x = x_step * x_pos;
+			blt::i32  y = y_step * y_pos;
+			blt::i32  x = x_step * x_pos;
 			for (; y < std::min(image.height, y_step * (y_pos + 1)); y++)
 			{
 				for (; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
 					const blt::vec3 value{
-						image.data[(y * image.width + x) * 4 + 0], image.data[(y * image.width + x) * 4 + 1],
+						image.data[(y * image.width + x) * 4 + 0],
+						image.data[(y * image.width + x) * 4 + 1],
 						image.data[(y * image.width + x) * 4 + 2]
 					};
 
-					const auto a = image.data[(y * image.width + x) * 4 + 3];
-					auto diff = (average_color[current_sample++] - value) * a;
+					const auto a    = image.data[(y * image.width + x) * 4 + 3];
+					auto       diff = (average_color[current_sample++] - value) * a;
 					color_difference += diff * diff;
 					alpha += a;
 				}
@@ -185,21 +191,16 @@ sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& imag
 	}
 }
 
-blt::vec3 comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
+float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
 {
 	auto s1_v = s1.get_values();
 	auto s2_v = s2.get_values();
-	auto s1_i = s1_v.begin();
-	auto s2_i = s2_v.begin();
-	blt::vec3 total{};
-	for (; s1_i != s1_v.end() && s2_i != s2_v.end(); ++s1_i, ++s2_i)
-	{
-		const auto sample1 = *s1_i;
-		const auto sample2 = *s2_i;
-		const auto dif = sample1 - sample2;
-		total += dif * dif;
-	}
-	return {std::sqrt(total[0]), std::sqrt(total[1]), std::sqrt(total[2])};
+	BLT_ASSERT(s1_v.size() == s2_v.size() && s1_v.size() == 1 && "Please use other comparators for multi-sample sets!");
+	const blt::vec3 diff = s1_v.front() - s2_v.front();
+	float total = 0;
+	for (const float f : diff)
+		total += f * f;
+	return std::sqrt(total);
 }
 
 std::vector<std::tuple<std::string, std::string>>& assets_t::get_biomes()
@@ -214,13 +215,15 @@ std::vector<std::tuple<std::string, std::string>>& assets_t::get_biomes()
 				ret.emplace_back(namespace_str, biome_str);
 			}
 		}
-		std::sort(ret.begin(), ret.end(), [](const auto& a, const auto& b) {
-			auto [ns1, biome1] = a;
-			auto [ns2, biome2] = b;
-			auto combined1 = ns1 + ':' + biome1;
-			auto combined2 = ns2 + ':' + biome2;
-			return combined1.compare(combined2) < 0;
-		});
+		std::sort(ret.begin(),
+				  ret.end(),
+				  [](const auto& a, const auto& b) {
+					  auto [ns1, biome1] = a;
+					  auto [ns2, biome2] = b;
+					  auto combined1     = ns1 + ':' + biome1;
+					  auto combined2     = ns2 + ':' + biome2;
+					  return combined1.compare(combined2) < 0;
+				  });
 	}
 	return ret;
 }

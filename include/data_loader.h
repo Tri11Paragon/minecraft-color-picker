@@ -38,17 +38,19 @@ struct sampler_interface_t
 
 struct sampler_single_value_t final : sampler_interface_t
 {
-	explicit sampler_single_value_t(const blt::vec3 value): value{value}
+	explicit sampler_single_value_t(const blt::vec3 value, blt::i32 samples = 1): value{value}, samples{samples}
 	{}
 
 	[[nodiscard]] std::vector<blt::vec3> get_values() const override
 	{
 		std::vector<blt::vec3> values;
-		values.push_back(value);
+		for (blt::i32 i = 0; i < samples; i++)
+			values.push_back(value);
 		return values;
 	}
 
 	blt::vec3 value;
+	blt::i32 samples;
 };
 
 struct sampler_oklab_op_t final : sampler_interface_t
@@ -90,9 +92,9 @@ struct sampler_color_difference_op_t final : sampler_interface_t
 struct comparator_interface_t
 {
 	virtual ~comparator_interface_t() = default;
-	virtual blt::vec3 compare(sampler_interface_t& s1, sampler_interface_t& s2) = 0;
+	virtual float compare(sampler_interface_t& s1, sampler_interface_t& s2) = 0;
 
-	blt::vec3 compare(sampler_interface_t& s1, const blt::vec3 point)
+	float compare(sampler_interface_t& s1, const blt::vec3 point)
 	{
 		sampler_single_value_t value{point};
 		return compare(s1, value);
@@ -101,7 +103,7 @@ struct comparator_interface_t
 
 struct comparator_euclidean_t final : comparator_interface_t
 {
-	blt::vec3 compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
+	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
 };
 
 struct image_t
