@@ -193,8 +193,8 @@ sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t&     
 
 float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
 {
-	auto s1_v = s1.get_values();
-	auto s2_v = s2.get_values();
+	const auto s1_v = s1.get_values();
+	const auto s2_v = s2.get_values();
 	BLT_ASSERT(s1_v.size() == s2_v.size() && s1_v.size() == 1 && "Please use other comparators for multi-sample sets!");
 	const blt::vec3 diff = s1_v.front() - s2_v.front();
 	float total = 0;

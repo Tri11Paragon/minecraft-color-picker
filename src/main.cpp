@@ -145,7 +145,6 @@ struct tab_data_t
 										ImGuiColorEditFlags_PickerHueWheel))
 					skipped_index.clear();
 				ImGui::EndChild();
-				// what a distastefully arrogant way to look at things. you wonder why people suddenly don't want to be your friend
 				sampler_single_value_t sampler{blt::vec3{color_picker_data}.linear_rgb_to_oklab(), 1};
 
 				comparator_euclidean_t comparator;
@@ -154,7 +153,8 @@ struct tab_data_t
 				{
 					std::string        name;
 					const gpu_image_t* texture;
-					float          dist;
+					blt::vec3          average;
+					float              dist;
 				};
 
 				std::vector<ordering_t> ordered_images;
@@ -164,17 +164,17 @@ struct tab_data_t
 					{
 						auto       image_sampler = interface_generator(images.image);
 						const auto dist          = comparator.compare(sampler, *image_sampler);
-						ordered_images.push_back(ordering_t{namespace_str + ":" += name, &images, dist});
+						ordered_images.push_back(ordering_t{
+							namespace_str + ":" += name,
+							&images,
+							image_sampler->get_values().front(),
+							dist});
 					}
 				}
 
 				std::stable_sort(ordered_images.begin(),
-						  ordered_images.end(),
-						  [](const ordering_t& a, const ordering_t& b) {
-							  auto& [a_name, a_texture, a_dist] = a;
-							  auto& [b_name, b_texture, b_dist] = b;
-							  return b_dist > a_dist;
-						  });
+								 ordered_images.end(),
+								 [](const ordering_t& a, const ordering_t& b) { return a.dist < b.dist; });
 
 				// ImGui::BeginChild("##Selector", ImVec2(0, 0));
 				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
@@ -183,7 +183,9 @@ struct tab_data_t
 				const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
 				if (ImGui::BeginChild("ChildImageHolder"))
 				{
-					if (ImGui::BeginTable("ImageSelectionTable", amount_per_line, ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
+					if (ImGui::BeginTable("ImageSelectionTable",
+										  amount_per_line,
+										  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
 					{
 						ImGui::TableNextColumn();
 						for (int i = 0; i < images; i++)
@@ -191,7 +193,8 @@ struct tab_data_t
 							if (index >= ordered_images.size())
 								continue;
 							while (skipped_index.contains(index)) { ++index; }
-							auto& [name, texture, distance] = ordered_images[index];
+							auto& [name, texture, average, distance] = ordered_images[index];
+							ImGui::Text("Avg: (%f, %f, %f)", average[0], average[1], average[2]);
 							ImGui::Text("(%.6f)", distance);
 							ImGui::Image(texture->texture->getTextureID(),
 										 ImVec2{
