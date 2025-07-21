@@ -30,37 +30,36 @@ database_t load_database(const std::filesystem::path& path);
 
 struct image_t;
 
+
 template <typename Value>
 struct sequence_t
 {
 	sequence_t() = default;
 
-	explicit sequence_t(const Value& value): m_value{value}
-	{}
+	explicit sequence_t(const Value& value): m_value{value} {}
 
-	sequence_t(const Value& value, sequence_t next): m_value{value}, m_next{std::make_unique<sequence_t>(std::move(next))}
-	{}
+	sequence_t(const Value& value, sequence_t next): m_value{value},
+													 m_next{std::make_unique<sequence_t>(std::move(next))} {}
 
 	std::optional<sequence_t> next()
 	{
 		auto result = m_next == nullptr ? std::optional<sequence_t>{} : std::optional<sequence_t>{std::move(*m_next)};
-		m_next = nullptr;
+		m_next      = nullptr;
 		return result;
 	}
 
-	const Value& value()
-	{
-		return m_value;
-	}
+	const Value& value() { return m_value; }
 
 private:
-	Value m_value;
+	Value                       m_value;
 	std::unique_ptr<sequence_t> m_next = nullptr;
 };
+
 
 using sample_sequence_t = sequence_t<blt::vec3>;
 
 sample_sequence_t make_sequence(std::initializer_list<blt::vec3> list);
+
 
 struct sampler_interface_t
 {
@@ -69,34 +68,53 @@ struct sampler_interface_t
 	virtual ~sampler_interface_t() = default;
 };
 
+
 struct sampler_single_value_t final : sampler_interface_t
 {
-	explicit sampler_single_value_t(const blt::vec3 value): value{value}
-	{}
+	explicit sampler_single_value_t(const blt::vec3 value): value{value} {}
 
-	sample_sequence_t get_sampler() override
-	{
-		return sample_sequence_t{value};
-	}
+	sample_sequence_t get_sampler() override { return sample_sequence_t{value}; }
 
 	blt::vec3 value;
 };
 
-struct sampler_one_point_t final : sampler_interface_t
-{
-	explicit sampler_one_point_t(const image_t& image);
 
-	sample_sequence_t get_sampler() override
-	{
-		return sample_sequence_t{average};
-	}
+struct sampler_oklab_op_t final : sampler_interface_t
+{
+	explicit sampler_oklab_op_t(const image_t& image);
+
+	sample_sequence_t get_sampler() override { return sample_sequence_t{average}; }
 
 	blt::vec3 average;
 };
 
+
+struct sampler_linear_rgb_op_t final : sampler_interface_t
+{
+	explicit sampler_linear_rgb_op_t(const image_t& image);
+
+	sample_sequence_t get_sampler() override { return sample_sequence_t{average}; }
+
+	blt::vec3 average;
+};
+
+
+struct sampler_color_difference_op_t final : sampler_interface_t
+{
+	explicit sampler_color_difference_op_t(const image_t& image, const blt::vec3& average_color);
+
+	sample_sequence_t get_sampler() override { return sample_sequence_t{color_difference}; }
+
+	blt::vec3 color_difference;
+
+private:
+	blt::vec3 average_color;
+};
+
+
 struct comparator_interface_t
 {
-	virtual ~comparator_interface_t() = default;
+	virtual           ~comparator_interface_t() = default;
 	virtual blt::vec3 compare(sampler_interface_t& s1, sampler_interface_t& s2) = 0;
 
 	blt::vec3 compare(sampler_interface_t& s1, const blt::vec3 point)
@@ -106,41 +124,41 @@ struct comparator_interface_t
 	}
 };
 
+
 struct comparator_euclidean_t final : comparator_interface_t
 {
 	blt::vec3 compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
 };
 
+
 struct image_t
 {
-	blt::i32 width, height;
+	blt::i32           width, height;
 	std::vector<float> data;
 
-	[[nodiscard]] auto get_default_sampler() const
-	{
-		return sampler_one_point_t{*this};
-	}
+	[[nodiscard]] auto get_default_sampler() const { return sampler_linear_rgb_op_t{*this}; }
 };
+
 
 struct namespace_assets_t
 {
-	blt::hashmap_t<std::string, image_t> images;
-	blt::hashmap_t<std::string, image_t> non_solid_images;
+	blt::hashmap_t<std::string, image_t>       images;
+	blt::hashmap_t<std::string, image_t>       non_solid_images;
 	blt::hashmap_t<std::string, biome_color_t> biome_colors;
 };
 
+
 struct assets_t
 {
-	database_t* db = nullptr;
+	database_t*                                     db = nullptr;
 	blt::hashmap_t<std::string, namespace_assets_t> assets;
 	assets_t() = default;
 
-	explicit assets_t(database_t& db): db{&db}
-	{}
-    
-    std::vector<std::tuple<std::string, std::string>>& get_biomes();
+	explicit assets_t(database_t& db): db{&db} {}
 
-	template<typename... Types>
+	std::vector<std::tuple<std::string, std::string>>& get_biomes();
+
+	template <typename... Types>
 	std::vector<std::tuple<Types...>> get_rows(const std::string& sql)
 	{
 		if (db == nullptr)
@@ -150,7 +168,7 @@ struct assets_t
 		return get_rows<Types...>(stmt);
 	}
 
-	template<typename... Types>
+	template <typename... Types>
 	std::vector<std::tuple<Types...>> get_rows(statement_t& stmt)
 	{
 		if (db == nullptr)
@@ -163,11 +181,11 @@ struct assets_t
 	}
 };
 
+
 class data_loader_t
 {
 public:
-	explicit data_loader_t(database_t data): db{std::move(data)}
-	{}
+	explicit data_loader_t(database_t data): db{std::move(data)} {}
 
 	[[nodiscard]] assets_t load();
 

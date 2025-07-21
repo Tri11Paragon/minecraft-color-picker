@@ -24,12 +24,20 @@ gpu_asset_manager::gpu_asset_manager(assets_t& assets): assets(&assets)
     auto ass = assets;
     for (auto& [namespace_str, data] : ass.assets) {
         for (auto& [image_name, image] : data.images) {
+            if (image.width != image.height)
+            {
+                const auto smallest = std::min(image.width, image.height);
+                image.width = smallest;
+                image.height = smallest;
+            }
+
             auto texture = std::make_unique<blt::gfx::texture_gl2D>(image.width, image.height);
             texture->bind();
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             for (auto& f : image.data)
-                f = std::pow(f, 1.0f / 2.2f);
+                f = blt::linear_to_srgb(f);
+
             texture->upload(image.data.data(), image.width, image.height, GL_RGBA, GL_FLOAT);
             
             resources[namespace_str][image_name] = gpu_image_t{std::move(image), std::move(texture)};
@@ -41,7 +49,7 @@ gpu_asset_manager::gpu_asset_manager(assets_t& assets): assets(&assets)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             for (auto& f : image.data)
-                f = std::pow(f, 1.0f / 2.2f);
+                f = blt::linear_to_srgb(f);
             texture->upload(image.data.data(), image.width, image.height, GL_RGBA, GL_FLOAT);
             
             non_solid_resources[namespace_str][image_name] = gpu_image_t{std::move(image), std::move(texture)};
