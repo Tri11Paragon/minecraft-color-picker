@@ -22,6 +22,7 @@
 #include "blt/gfx/renderer/batch_2d_renderer.h"
 #include "blt/gfx/renderer/camera.h"
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
 #include <sql.h>
 #include <data_loader.h>
 #include <blt/math/log_util.h>
@@ -89,7 +90,133 @@ struct tab_data_t
 		return ordered_images;
 	}
 
-	void draw_order(std::vector<ordering_t>& ordered_images) {}
+	[[nodiscard]] blt::hashset_t<std::string> get_blocks_control_list() const
+	{
+		blt::hashset_t<std::string> blocks;
+		const auto                  sections = blt::string::split(control_list, ',');
+		for (const auto& section : sections)
+		{
+			if (blt::string::starts_with(section, "#"))
+			{
+				auto tag_str = section.substr(1);
+				auto parts   = blt::string::split(tag_str, ':');
+				if (parts.empty())
+					continue;
+				if (parts.size() == 1)
+					parts.insert(parts.begin(), "minecraft");
+				auto it = assets.assets.find(parts[0]);
+				if (it == assets.assets.end())
+					continue;
+				auto& [namespace_str, ns] = *it;
+				auto  it2                 = ns.tags.find(parts[1]);
+				if (it2 == ns.tags.end())
+					continue;
+				auto& [tag_name, set] = *it2;
+				for (const auto& block : set)
+					blocks.insert(block);
+			} else
+			{
+				auto parts = blt::string::split(section, ':');
+				if (parts.empty())
+					continue;
+				if (parts.size() == 1)
+					parts.insert(parts.begin(), "minecraft");
+				blocks.insert(parts[0] + ":" += parts[1]);
+			}
+		}
+		blt::hashset_t<std::string> list;
+		for (const auto& str : blocks)
+		{
+			auto parts = blt::string::split(str, ':');
+			if (parts.empty())
+				continue;
+			auto it = assets.assets.find(parts[0]);
+			if (it == assets.assets.end())
+				continue;
+			auto [_, ns] = *it;
+			auto it2 = ns.block_to_textures.find(parts[1]);
+			if (it2 == ns.block_to_textures.end())
+				continue;
+			auto& [block_name, textures] = *it2;
+			for (const auto& texture : textures)
+				list.insert(texture);
+		}
+		return list;
+	}
+
+	void draw_order(std::vector<ordering_t>& ordered_images)
+	{
+		ImGui::InputInt("Images to Display", &images);
+		ImGui::InputInt("Samples (per axis)", &samples);
+		if (ImGui::InputText("Access Control String", &control_list))
+			list = get_blocks_control_list();
+		ImGui::SameLine();
+		HelpMarker(
+			"Prefix with # to use tags, separate by commas for multiple tags or blocks. Eg: #minecraft:block/leaves,minecraft:block/grass_block");
+		ImGui::Checkbox("Blacklist?", &is_blacklist);
+		ImGui::SameLine();
+		HelpMarker("If not enabled then list acts as a whitelist");
+		if (samples < 1)
+			samples = 1;
+		if (samples > 8)
+			samples = 8;
+		const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
+		if (ImGui::BeginChild("ChildImageHolder"))
+		{
+			if (ImGui::BeginTable("ImageSelectionTable",
+								  amount_per_line,
+								  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
+			{
+				int index = 0;
+				ImGui::TableNextColumn();
+				for (int i = 0; i < images; i++)
+				{
+					if (index >= ordered_images.size())
+						continue;
+					while (skipped_index.contains(index)) { ++index; }
+					while (!selected_block.empty() && ordered_images[index].name == selected_block) { ++index; }
+					while (list.contains(ordered_images[index].name)) { ++index; }
+					auto& [name, texture, average, distance] = ordered_images[index];
+
+					ImGui::Image(texture->texture->getTextureID(),
+								 ImVec2{
+									 static_cast<float>(texture->image.width) * 4,
+									 static_cast<float>(texture->image.height) * 4
+								 });
+					ImGui::TableNextColumn();
+					if (ImGui::IsItemHovered())
+					{
+						ImGui::BeginTooltip();
+						ImGui::Text("%s", block_pretty_name(name).c_str());
+						ImGui::EndTooltip();
+					}
+					if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
+					{
+						ImGui::Text("%s", block_pretty_name(name).c_str());
+						if (ImGui::Button("Find Similar"))
+						{
+							tab_data_t data{next_tab_id++};
+							data.selected_block         = name;
+							data.selected_block_texture = texture;
+							data.configured             = BLOCK_SELECT;
+							data.tab_name               = "Block Picker##" + std::to_string(data.id);
+							tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
+						}
+						ImGui::Separator();
+						if (ImGui::Button("Remove"))
+							skipped_index.insert(index);
+						ImGui::Separator();
+						if (ImGui::Button("Close"))
+							ImGui::CloseCurrentPopup();
+						ImGui::EndPopup();
+					}
+					++index;
+				}
+				ImGui::EndTable();
+			}
+		}
+		ImGui::EndChild();
+	}
 
 
 	enum tab_type_t
@@ -100,17 +227,15 @@ struct tab_data_t
 
 	explicit tab_data_t(const size_t id):
 		tab_name("Unconfigured##" + std::to_string(id)),
-		id(id)
-	{}
+		id(id) {}
 
 	void render()
 	{
 		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
 		{
 			ImGui::OpenPopup("RenameTab");
-			const auto size = std::min(tab_name.find('#'), sizeof(buf) - 1);
-			std::memset(buf, 0, sizeof(buf));
-			std::memcpy(buf, tab_name.data(), size);
+			const auto size = std::min(tab_name.find('#'), tab_name.size());
+			input_buf       = tab_name.substr(0, size);
 		}
 
 		if (ImGui::BeginPopup("RenameTab", ImGuiWindowFlags_AlwaysAutoResize))
@@ -119,11 +244,10 @@ struct tab_data_t
 			ImGui::SetKeyboardFocusHere();
 			ImGui::Text("Rename Tab");
 			if (ImGui::InputText(("##rename" + std::to_string(id)).c_str(),
-								 buf,
-								 sizeof(buf),
+								 &input_buf,
 								 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
 			{
-				tab_name = buf;
+				tab_name = input_buf;
 				tab_name += "##";
 				tab_name += std::to_string(id);
 				ImGui::CloseCurrentPopup();
@@ -197,72 +321,14 @@ struct tab_data_t
 
 				// ImGui::BeginChild("##Selector", ImVec2(0, 0));
 				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
-				ImGui::InputInt("Images to Display", &images);
-				ImGui::InputInt("Samples (per axis)", &samples);
-				if (samples < 1)
-					samples = 1;
-				if (samples > 8)
-					samples = 8;
-				const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
-				if (ImGui::BeginChild("ChildImageHolder"))
-				{
-					if (ImGui::BeginTable("ImageSelectionTable",
-										  amount_per_line,
-										  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
-					{
-						int index = 0;
-						ImGui::TableNextColumn();
-						for (int i = 0; i < images; i++)
-						{
-							if (index >= ordered_images.size())
-								continue;
-							while (skipped_index.contains(index)) { ++index; }
-							auto& [name, texture, average, distance] = ordered_images[index];
-							ImGui::Image(texture->texture->getTextureID(),
-										 ImVec2{
-											 static_cast<float>(texture->image.width) * 4,
-											 static_cast<float>(texture->image.height) * 4
-										 });
-							ImGui::TableNextColumn();
-							if (ImGui::IsItemHovered())
-							{
-								ImGui::BeginTooltip();
-								ImGui::Text("%s", block_pretty_name(name).c_str());
-								ImGui::EndTooltip();
-							}
-							if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
-							{
-								ImGui::Text("%s", block_pretty_name(name).c_str());
-								if (ImGui::Button("Find Similar"))
-								{
-									tab_data_t data{next_tab_id++};
-									data.selected_block         = name;
-									data.selected_block_texture = texture;
-									data.configured             = BLOCK_SELECT;
-									data.tab_name               = "Block Picker##" + std::to_string(data.id);
-									tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
-								}
-								ImGui::Separator();
-								if (ImGui::Button("Remove"))
-									skipped_index.insert(index);
-								ImGui::Separator();
-								if (ImGui::Button("Close"))
-									ImGui::CloseCurrentPopup();
-								ImGui::EndPopup();
-							}
-							++index;
-						}
-						ImGui::EndTable();
-					}
-				}
-				ImGui::EndChild();
+				draw_order(ordered_images);
 			}
 			break;
 			case ASSET_BROWSER:
 				if (ImGui::BeginChild("##Browser", ImVec2(0, 0)))
 				{
 					ImGui::Text("Search: ");
-					ImGui::InputText("##InputSearch", buf, sizeof(buf));
+					ImGui::InputText("##InputSearch", &input_buf);
 					if (!asset_rows)
 					{
 						static auto stmt = assets.db->prepare(
@@ -293,7 +359,7 @@ struct tab_data_t
 						&delete_textures2_stmt,
 						&delete_blocks_stmt};
 
-					const auto search = std::string(buf);
+					const auto& search = input_buf;
 
 					int counter = 0;
 					for (const auto& [namespace_str, texture_name] : *asset_rows)
@@ -422,12 +488,12 @@ struct tab_data_t
 					auto       local_center = ImVec2((content_min.x + content_max.x) * 0.5f,
 													 (content_min.y + content_max.y) * 0.5f);
 
-					auto window = ImGui::GetWindowPos();
+					const auto window = ImGui::GetWindowPos();
 
-					if (auto block = show_block_picker(blt::vec2{
-														   window.x + local_center.x - (32 * 16 + 48) * 0.5f,
-														   window.y + local_center.y - 32 * 8 * 0.5 - 48},
-													   s))
+					if (const auto block = show_block_picker(blt::vec2{
+																 window.x + local_center.x - (32 * 16 + 48) * 0.5f,
+																 window.y + local_center.y - 32 * 8 * 0.5 - 48},
+															 s))
 					{
 						selected_block         = s[*block].block_name;
 						selected_block_texture = s[*block].texture;
@@ -435,6 +501,7 @@ struct tab_data_t
 
 					if (selected_block_texture != nullptr)
 					{
+						ImGui::Text("Block: %s", block_pretty_name(selected_block).c_str());
 						ImGui::Image(selected_block_texture->texture->getTextureID(), ImVec2{64, 64});
 
 						auto image_sampler = interface_generator(selected_block_texture->image, samples);
@@ -444,65 +511,7 @@ struct tab_data_t
 
 						ImGui::Text(
 							"Click the image icon to remove it from the list. This is reset when the block changes.");
-						ImGui::InputInt("Images to Display", &images);
-						ImGui::InputInt("Samples (per axis)", &samples);
-						if (samples < 1)
-							samples = 1;
-						if (samples > 8)
-							samples = 8;
-						const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
-						if (ImGui::BeginChild("ChildImageHolder"))
-						{
-							if (ImGui::BeginTable("ImageSelectionTable",
-												  amount_per_line,
-												  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
-							{
-								int index = 0;
-								ImGui::TableNextColumn();
-								for (int i = 0; i < images; i++)
-								{
-									if (index >= ordered_images.size())
-										continue;
-									while (skipped_index.contains(index)) { ++index; }
-									auto& [name, texture, average, distance] = ordered_images[index];
-									ImGui::Image(texture->texture->getTextureID(),
-												 ImVec2{
-													 static_cast<float>(texture->image.width) * 4,
-													 static_cast<float>(texture->image.height) * 4
-												 });
-									ImGui::TableNextColumn();
-									if (ImGui::IsItemHovered())
-									{
-										ImGui::BeginTooltip();
-										ImGui::Text("%s", block_pretty_name(name).c_str());
-										ImGui::EndTooltip();
-									}
-									if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
-									{
-										ImGui::Text("%s", block_pretty_name(name).c_str());
-										if (ImGui::Button("Find Similar"))
-										{
-											tab_data_t data{next_tab_id++};
-											data.selected_block         = name;
-											data.selected_block_texture = texture;
-											data.configured             = BLOCK_SELECT;
-											data.tab_name               = "Block Picker##" + std::to_string(data.id);
-											tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
-										}
-										ImGui::Separator();
-										if (ImGui::Button("Remove"))
-											skipped_index.insert(index);
-										ImGui::Separator();
-										if (ImGui::Button("Close"))
-											ImGui::CloseCurrentPopup();
-										ImGui::EndPopup();
-									}
-									++index;
-								}
-								ImGui::EndTable();
-							}
-						}
-						ImGui::EndChild();
+						draw_order(ordered_images);
 					}
 				}
 				ImGui::EndChild();
@@ -512,14 +521,17 @@ struct tab_data_t
 
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
 
-	std::string         tab_name   = "Unconfigured";
-	tab_type_t          configured = UNCONFIGURED;
-	char                buf[128]{};
-	float               color_picker_data[3]{};
-	blt::hashset_t<int> skipped_index;
-	int                 images = 16;
-	size_t              id;
-	int                 samples = 1;
+	std::string                 tab_name   = "Unconfigured";
+	tab_type_t                  configured = UNCONFIGURED;
+	std::string                 input_buf;
+	std::string                 control_list;
+	bool                        is_blacklist = true;
+	float                       color_picker_data[3]{};
+	blt::hashset_t<int>         skipped_index;
+	blt::hashset_t<std::string> list;
+	int                         images = 16;
+	size_t                      id;
+	int                         samples = 1;
 
 	std::string        selected_block;
 	const gpu_image_t* selected_block_texture = nullptr;

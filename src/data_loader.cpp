@@ -82,6 +82,65 @@ assets_t data_loader_t::load()
 		assets.assets[namespace_str].biome_colors[biome] = {grass, leaves};
 	}
 
+	blt::hashmap_t<std::string, blt::hashmap_t<std::string, blt::hashset_t<std::string>>> tags;
+	stmt = db.prepare("SELECT namespace,tag,block FROM tags");
+	stmt.bind();
+	while (stmt.execute().has_row())
+	{
+		auto       column                      = stmt.fetch();
+		const auto [namespace_str, tag, block] = column.get<std::string, std::string, std::string>();
+		tags[namespace_str][tag].insert(block);
+	}
+
+	std::vector<std::tuple<std::string, std::string, std::string>> tag_list;
+	for (const auto& [namespace_str, tag_map] : tags)
+	{
+		for (const auto& [tag, block_set] : tag_map)
+		{
+			for (const auto& block : block_set) { tag_list.emplace_back(namespace_str, tag, block); }
+		}
+	}
+
+	while (!tag_list.empty())
+	{
+		auto [namespace_str, tag, block] = tag_list.back();
+		tag_list.pop_back();
+
+		if (blt::string::starts_with(block, '#'))
+		{
+			const auto parts = blt::string::split(block.substr(1), ':');
+			if (parts.size() == 1)
+			{
+				for (const auto& block2 : tags[namespace_str][parts[0]])
+					tag_list.emplace_back(namespace_str, tag, block2);
+			} else
+			{
+				for (const auto& block2 : tags[parts[0]][parts[1]])
+					tag_list.emplace_back(namespace_str, tag, block2);
+			}
+		} else
+		{
+			const auto parts = blt::string::split(block, ':');
+			if (parts.size() == 1)
+				assets.assets[namespace_str].tags[tag].insert(namespace_str + ":" += parts[0]);
+			else
+				assets.assets[namespace_str].tags[tag].insert(block);
+		}
+	}
+
+	stmt = db.prepare("SELECT DISTINCT b.namespace, b.block_name, t.namespace, t.name "
+		"FROM (SELECT * FROM non_solid_textures UNION SELECT * FROM solid_textures) as t "
+		"INNER JOIN models as m ON m.texture_namespace = t.namespace AND m.texture = t.name "
+		"INNER JOIN block_names as b ON m.namespace = b.model_namespace AND m.model = b.model");
+	stmt.bind();
+	while (stmt.execute().has_row())
+	{
+		auto       column                                               = stmt.fetch();
+		const auto [namespace_str, block_name, texture_namespace, texture] = column.get<
+			std::string, std::string, std::string, std::string>();
+		assets.assets[namespace_str].block_to_textures[block_name].insert(texture_namespace + ":" += texture);
+	}
+
 	return assets;
 }
 

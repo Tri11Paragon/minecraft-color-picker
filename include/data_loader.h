@@ -132,6 +132,8 @@ struct namespace_assets_t
 	blt::hashmap_t<std::string, image_t> images;
 	blt::hashmap_t<std::string, image_t> non_solid_images;
 	blt::hashmap_t<std::string, biome_color_t> biome_colors;
+	blt::hashmap_t<std::string, blt::hashset_t<std::string>> tags;
+	blt::hashmap_t<std::string, blt::hashset_t<std::string>> block_to_textures;
 };
 
 struct assets_t
