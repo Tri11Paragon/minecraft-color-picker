@@ -89,17 +89,15 @@ sampler_oklab_op_t::sampler_oklab_op_t(const image_t& image, const blt::i32 samp
 {
 	const auto x_step = image.width / samples;
 	const auto y_step = image.height / samples;
-	for (blt::i32 x_pos = 0; x_pos < samples; x_pos++)
+	for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
 	{
-		for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
+		for (blt::i32 x_pos = 0; x_pos < samples; x_pos++)
 		{
 			float     alpha = 0;
-			blt::vec3 average;
-			blt::i32  y = y_step * y_pos;
-			blt::i32  x = x_step * x_pos;
-			for (; y < std::min(image.height, y_step * (y_pos + 1)); y++)
+			blt::vec3 average{};
+			for (blt::i32 y = y_step * y_pos; y < std::min(image.height, y_step * (y_pos + 1)); y++)
 			{
-				for (; x < std::min(image.width, x_step * (x_pos + 1)); x++)
+				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
 					const blt::vec3 value{
 						image.data[(y * image.width + x) * 4 + 0],
@@ -128,12 +126,10 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 		for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
 		{
 			float     alpha = 0;
-			blt::vec3 average;
-			blt::i32  y = y_step * y_pos;
-			blt::i32  x = x_step * x_pos;
-			for (; y < std::min(image.height, y_step * (y_pos + 1)); y++)
+			blt::vec3 average{};
+			for (blt::i32 y = y_step * y_pos; y < std::min(image.height, y_step * (y_pos + 1)); y++)
 			{
-				for (; x < std::min(image.width, x_step * (x_pos + 1)); x++)
+				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
 					const blt::vec3 value{
 						image.data[(y * image.width + x) * 4 + 0],
@@ -166,11 +162,9 @@ sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t&     
 		{
 			float     alpha = 0;
 			blt::vec3 color_difference;
-			blt::i32  y = y_step * y_pos;
-			blt::i32  x = x_step * x_pos;
-			for (; y < std::min(image.height, y_step * (y_pos + 1)); y++)
+			for (blt::i32 y = y_step * y_pos; y < std::min(image.height, y_step * (y_pos + 1)); y++)
 			{
-				for (; x < std::min(image.width, x_step * (x_pos + 1)); x++)
+				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
 					const blt::vec3 value{
 						image.data[(y * image.width + x) * 4 + 0],
@@ -196,11 +190,48 @@ float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface
 	const auto s1_v = s1.get_values();
 	const auto s2_v = s2.get_values();
 	BLT_ASSERT(s1_v.size() == s2_v.size() && s1_v.size() == 1 && "Please use other comparators for multi-sample sets!");
-	const blt::vec3 diff = s1_v.front() - s2_v.front();
-	float total = 0;
+	const blt::vec3 diff  = s1_v.front() - s2_v.front();
+	float           total = 0;
 	for (const float f : diff)
 		total += f * f;
 	return std::sqrt(total);
+}
+
+float comparator_mean_sample_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
+{
+	const auto s1_v = s1.get_values();
+	const auto s2_v = s2.get_values();
+	BLT_ASSERT(s1_v.size() == s2_v.size() && "samplers must provide the same number of elements");
+	float total = 0;
+	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
+	{
+		const blt::vec3 diff   = s1_v.front() - s2_v.front();
+		float           ltotal = 0;
+		for (const float f : diff)
+			ltotal += f * f;
+		total += std::sqrt(ltotal);
+	}
+	return total / static_cast<float>(s1_v.size());
+}
+
+float comparator_nearest_sample_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
+{
+	const auto s1_v = s1.get_values();
+	const auto s2_v = s2.get_values();
+	BLT_ASSERT(s1_v.size() == s2_v.size() && "samplers must provide the same number of elements");
+	float best = std::numeric_limits<float>::max();
+
+	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
+	{
+		const blt::vec3 diff   = s1_v.front() - s2_v.front();
+		float           ltotal = 0;
+		for (const float f : diff)
+			ltotal += f * f;
+		ltotal = std::sqrt(ltotal);
+		if (ltotal < best)
+			best = ltotal;
+	}
+	return best;
 }
 
 std::vector<std::tuple<std::string, std::string>>& assets_t::get_biomes()

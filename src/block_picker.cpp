@@ -48,7 +48,10 @@ std::optional<size_t> draw_block_list(const std::vector<block_picker_data_t>& bl
 			if (selectable)
 			{
 				if (ImGui::ImageButton(block_pretty_name(name).c_str(), texture->texture->getTextureID(), ImVec2{icon_size[0], icon_size[1]}))
+				{
+					ImGui::EndTable();
 					return i;
+				}
 			} else
 				ImGui::Image(texture->texture->getTextureID(), ImVec2{icon_size[0], icon_size[1]});
 
@@ -63,7 +66,7 @@ std::optional<size_t> draw_block_list(const std::vector<block_picker_data_t>& bl
 	return {};
 }
 
-std::optional<std::string> show_block_picker(const blt::vec2& pos, const std::vector<block_picker_data_t>& block_textures, const int icons_per_row,
+std::optional<size_t> show_block_picker(const blt::vec2& pos, const std::vector<block_picker_data_t>& block_textures, const int icons_per_row,
 											const blt::vec2& icon_size, const float window_size)
 {
 	if (pos == blt::vec2{-1, -1})
@@ -85,10 +88,9 @@ std::optional<std::string> show_block_picker(const blt::vec2& pos, const std::ve
 							icon_size))
 			{
 				ImGui::CloseCurrentPopup();
-				ImGui::EndTable();
-				ImGui::EndPopup();
 				ImGui::EndChild();
-				return block_textures[*i].block_name;
+				ImGui::EndPopup();
+				return *i;
 			}
 		}
 		ImGui::EndChild();

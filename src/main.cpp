@@ -35,6 +35,7 @@ blt::gfx::first_person_camera_2d camera;
 
 assets_t                         assets;
 std::optional<gpu_asset_manager> gpu_resources;
+static size_t                    next_tab_id = 1;
 
 static void HelpMarker(const std::string& desc)
 {
@@ -48,19 +49,59 @@ static void HelpMarker(const std::string& desc)
 	}
 }
 
+struct tab_data_t;
+
+std::vector<std::pair<std::unique_ptr<tab_data_t>, size_t>> tabs_to_add;
+
 
 struct tab_data_t
 {
-	enum tab_type_t
+	struct ordering_t
 	{
-		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER
+		std::string        name;
+		const gpu_image_t* texture;
+		blt::vec3          average;
+		float              dist;
 	};
 
 
-	explicit tab_data_t(const size_t id, std::vector<tab_data_t>& tabs):
+	std::vector<ordering_t> make_ordering(sampler_interface_t& sampler, comparator_interface_t& comparator) const
+	{
+		std::vector<ordering_t> ordered_images;
+		for (const auto& [namespace_str, data] : gpu_resources->resources)
+		{
+			for (const auto& [name, images] : data)
+			{
+				auto       image_sampler = interface_generator(images.image, samples);
+				const auto dist          = comparator.compare(sampler, *image_sampler);
+				ordered_images.push_back(ordering_t{
+					namespace_str + ":" += name,
+					&images,
+					image_sampler->get_values().front(),
+					dist});
+			}
+		}
+
+		std::stable_sort(ordered_images.begin(),
+						 ordered_images.end(),
+						 [](const ordering_t& a, const ordering_t& b) { return a.dist < b.dist; });
+
+		return ordered_images;
+	}
+
+	void draw_order(std::vector<ordering_t>& ordered_images) {}
+
+
+	enum tab_type_t
+	{
+		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER, BLOCK_SELECT
+	};
+
+
+	explicit tab_data_t(const size_t id):
 		tab_name("Unconfigured##" + std::to_string(id)),
-		id(id),
-		tabs{&tabs} {}
+		id(id)
+	{}
 
 	void render()
 	{
@@ -123,8 +164,11 @@ struct tab_data_t
 						tab_name   = "Color Picker##" + std::to_string(id);
 					}
 
-					if (ImGui::Button("Audio", ImVec2(btnWidth, btnHeight)))
-						/* … */;
+					if (ImGui::Button("Block Picker", ImVec2(btnWidth, btnHeight)))
+					{
+						configured = BLOCK_SELECT;
+						tab_name   = "Block Picker##" + std::to_string(id);
+					}
 					if (ImGui::Button("Controls", ImVec2(btnWidth, btnHeight)))
 						/* … */;
 					if (ImGui::Button("Browser", ImVec2(btnWidth, btnHeight)))
@@ -141,45 +185,24 @@ struct tab_data_t
 				ImGui::BeginChild("##Selector", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
 				if (ImGui::ColorPicker3("##SelectBlocks",
 										color_picker_data,
-										ImGuiColorEditFlags_InputRGB | ImGuiColorEditFlags_PickerHueBar |
+										ImGuiColorEditFlags_InputRGB |
 										ImGuiColorEditFlags_PickerHueWheel))
 					skipped_index.clear();
 				ImGui::EndChild();
-				sampler_single_value_t sampler{blt::vec3{color_picker_data}.linear_rgb_to_oklab(), 1};
+				sampler_single_value_t sampler{blt::vec3{color_picker_data}.linear_rgb_to_oklab(), samples * samples};
 
-				comparator_euclidean_t comparator;
+				comparator_mean_sample_euclidean_t comparator;
 
-				struct ordering_t
-				{
-					std::string        name;
-					const gpu_image_t* texture;
-					blt::vec3          average;
-					float              dist;
-				};
-
-				std::vector<ordering_t> ordered_images;
-				for (const auto& [namespace_str, data] : gpu_resources->resources)
-				{
-					for (const auto& [name, images] : data)
-					{
-						auto       image_sampler = interface_generator(images.image);
-						const auto dist          = comparator.compare(sampler, *image_sampler);
-						ordered_images.push_back(ordering_t{
-							namespace_str + ":" += name,
-							&images,
-							image_sampler->get_values().front(),
-							dist});
-					}
-				}
-
-				std::stable_sort(ordered_images.begin(),
-								 ordered_images.end(),
-								 [](const ordering_t& a, const ordering_t& b) { return a.dist < b.dist; });
+				auto ordered_images = make_ordering(sampler, comparator);
 
 				// ImGui::BeginChild("##Selector", ImVec2(0, 0));
 				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
 				ImGui::InputInt("Images to Display", &images);
-				int        index           = 0;
+				ImGui::InputInt("Samples (per axis)", &samples);
+				if (samples < 1)
+					samples = 1;
+				if (samples > 8)
+					samples = 8;
 				const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
 				if (ImGui::BeginChild("ChildImageHolder"))
 				{
@@ -187,6 +210,7 @@ struct tab_data_t
 										  amount_per_line,
 										  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
 					{
+						int index = 0;
 						ImGui::TableNextColumn();
 						for (int i = 0; i < images; i++)
 						{
@@ -194,8 +218,6 @@ struct tab_data_t
 								continue;
 							while (skipped_index.contains(index)) { ++index; }
 							auto& [name, texture, average, distance] = ordered_images[index];
-							ImGui::Text("Avg: (%f, %f, %f)", average[0], average[1], average[2]);
-							ImGui::Text("(%.6f)", distance);
 							ImGui::Image(texture->texture->getTextureID(),
 										 ImVec2{
 											 static_cast<float>(texture->image.width) * 4,
@@ -211,7 +233,15 @@ struct tab_data_t
 							if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
 							{
 								ImGui::Text("%s", block_pretty_name(name).c_str());
-								if (ImGui::Button("Find Similar")); // TODO
+								if (ImGui::Button("Find Similar"))
+								{
+									tab_data_t data{next_tab_id++};
+									data.selected_block         = name;
+									data.selected_block_texture = texture;
+									data.configured             = BLOCK_SELECT;
+									data.tab_name               = "Block Picker##" + std::to_string(data.id);
+									tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
+								}
 								ImGui::Separator();
 								if (ImGui::Button("Remove"))
 									skipped_index.insert(index);
@@ -231,6 +261,8 @@ struct tab_data_t
 			case ASSET_BROWSER:
 				if (ImGui::BeginChild("##Browser", ImVec2(0, 0)))
 				{
+					ImGui::Text("Search: ");
+					ImGui::InputText("##InputSearch", buf, sizeof(buf));
 					if (!asset_rows)
 					{
 						static auto stmt = assets.db->prepare(
@@ -261,12 +293,17 @@ struct tab_data_t
 						&delete_textures2_stmt,
 						&delete_blocks_stmt};
 
+					const auto search = std::string(buf);
+
 					int counter = 0;
 					for (const auto& [namespace_str, texture_name] : *asset_rows)
 					{
 						if (!gpu_resources->resources.contains(namespace_str))
 							continue;
 						if (!gpu_resources->resources[namespace_str].contains(texture_name))
+							continue;
+						auto name = namespace_str + ":" += texture_name;
+						if (!search.empty() && !blt::string::contains(name, search))
 							continue;
 						const auto& image = gpu_resources->resources[namespace_str][texture_name];
 						ImGui::BeginGroup();
@@ -320,6 +357,9 @@ struct tab_data_t
 							continue;
 						if (!gpu_resources->non_solid_resources[namespace_str].contains(texture_name))
 							continue;
+						auto name = namespace_str + ":" += texture_name;
+						if (!search.empty() && !blt::string::contains(name, search))
+							continue;
 						const auto& image = gpu_resources->non_solid_resources[namespace_str][texture_name];
 						ImGui::BeginGroup();
 						ImGui::Image(image.texture->getTextureID(),
@@ -368,23 +408,126 @@ struct tab_data_t
 				}
 				ImGui::EndChild();
 				break;
+			case BLOCK_SELECT:
+				if (ImGui::BeginChild("BLOCK_SELECT"))
+				{
+					bool should_open = false;
+					if (ImGui::Button("Select Block", ImVec2(avail.x * 0.5f, 50)))
+						should_open = true;
+					if (should_open)
+						ImGui::OpenPopup("##BlockPicker");
+					const auto s            = gpu_resources->get_icon_render_list();
+					auto       content_min  = ImGui::GetWindowContentRegionMin();
+					auto       content_max  = ImGui::GetWindowContentRegionMax();
+					auto       local_center = ImVec2((content_min.x + content_max.x) * 0.5f,
+													 (content_min.y + content_max.y) * 0.5f);
+
+					auto window = ImGui::GetWindowPos();
+
+					if (auto block = show_block_picker(blt::vec2{
+														   window.x + local_center.x - (32 * 16 + 48) * 0.5f,
+														   window.y + local_center.y - 32 * 8 * 0.5 - 48},
+													   s))
+					{
+						selected_block         = s[*block].block_name;
+						selected_block_texture = s[*block].texture;
+					}
+
+					if (selected_block_texture != nullptr)
+					{
+						ImGui::Image(selected_block_texture->texture->getTextureID(), ImVec2{64, 64});
+
+						auto image_sampler = interface_generator(selected_block_texture->image, samples);
+						comparator_mean_sample_euclidean_t comparator;
+
+						auto ordered_images = make_ordering(*image_sampler, comparator);
+
+						ImGui::Text(
+							"Click the image icon to remove it from the list. This is reset when the block changes.");
+						ImGui::InputInt("Images to Display", &images);
+						ImGui::InputInt("Samples (per axis)", &samples);
+						if (samples < 1)
+							samples = 1;
+						if (samples > 8)
+							samples = 8;
+						const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
+						if (ImGui::BeginChild("ChildImageHolder"))
+						{
+							if (ImGui::BeginTable("ImageSelectionTable",
+												  amount_per_line,
+												  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
+							{
+								int index = 0;
+								ImGui::TableNextColumn();
+								for (int i = 0; i < images; i++)
+								{
+									if (index >= ordered_images.size())
+										continue;
+									while (skipped_index.contains(index)) { ++index; }
+									auto& [name, texture, average, distance] = ordered_images[index];
+									ImGui::Image(texture->texture->getTextureID(),
+												 ImVec2{
+													 static_cast<float>(texture->image.width) * 4,
+													 static_cast<float>(texture->image.height) * 4
+												 });
+									ImGui::TableNextColumn();
+									if (ImGui::IsItemHovered())
+									{
+										ImGui::BeginTooltip();
+										ImGui::Text("%s", block_pretty_name(name).c_str());
+										ImGui::EndTooltip();
+									}
+									if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
+									{
+										ImGui::Text("%s", block_pretty_name(name).c_str());
+										if (ImGui::Button("Find Similar"))
+										{
+											tab_data_t data{next_tab_id++};
+											data.selected_block         = name;
+											data.selected_block_texture = texture;
+											data.configured             = BLOCK_SELECT;
+											data.tab_name               = "Block Picker##" + std::to_string(data.id);
+											tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
+										}
+										ImGui::Separator();
+										if (ImGui::Button("Remove"))
+											skipped_index.insert(index);
+										ImGui::Separator();
+										if (ImGui::Button("Close"))
+											ImGui::CloseCurrentPopup();
+										ImGui::EndPopup();
+									}
+									++index;
+								}
+								ImGui::EndTable();
+							}
+						}
+						ImGui::EndChild();
+					}
+				}
+				ImGui::EndChild();
+				break;
 		}
 	}
 
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
 
-	std::string                                                         tab_name   = "Unconfigured";
-	tab_type_t                                                          configured = UNCONFIGURED;
-	char                                                                buf[64]{};
-	float                                                               color_picker_data[3]{};
-	blt::hashset_t<int>                                                 skipped_index;
-	int                                                                 images = 16;
-	size_t                                                              id;
-	std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> interface_generator = [](const auto& image) {
-		return std::make_unique<sampler_oklab_op_t>(image, 1);
-	};
+	std::string         tab_name   = "Unconfigured";
+	tab_type_t          configured = UNCONFIGURED;
+	char                buf[128]{};
+	float               color_picker_data[3]{};
+	blt::hashset_t<int> skipped_index;
+	int                 images = 16;
+	size_t              id;
+	int                 samples = 1;
 
-	std::vector<tab_data_t>* tabs;
+	std::string        selected_block;
+	const gpu_image_t* selected_block_texture = nullptr;
+
+	std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> interface_generator = [
+		](const auto& image, int samples) {
+		return std::make_unique<sampler_oklab_op_t>(image, samples);
+	};
 };
 
 
@@ -416,7 +559,8 @@ void init(const blt::gfx::window_data&)
 	resources.load_resources();
 	renderer_2d.create();
 
-	window_tabs.emplace_back(0, window_tabs);
+	// window_tabs.reserve(16);
+	window_tabs.emplace_back(0);
 	window_tabs.back().tab_name = "Main";
 }
 
@@ -430,9 +574,9 @@ void update(const blt::gfx::window_data& data)
 
 	renderer_2d.render(data.width, data.height);
 
-	const auto s = gpu_resources->get_icon_render_list();
-	if (auto block = show_block_picker(blt::vec2{200, 200}, s))
-		BLT_TRACE("Selected block {}", *block);
+	// const auto s = gpu_resources->get_icon_render_list();
+	// if (auto block = show_block_picker(blt::vec2{200, 200}, s))
+	// 	BLT_TRACE("Selected block {}", *block);
 
 	ImGui::SetNextWindowSize(ImVec2{static_cast<float>(data.width), static_cast<float>(data.height)}, ImGuiCond_Always);
 	ImGui::SetNextWindowPos(ImVec2{0, 0}, ImGuiCond_Always);
@@ -482,13 +626,12 @@ void update(const blt::gfx::window_data& data)
 	avail = ImGui::GetContentRegionAvail();
 	if (ImGui::BeginChild("MainTabs", avail, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 	{
-		static size_t next_tab_id = 1;
 		if (ImGui::BeginTabBar(
 			"Color Views",
 			ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
 		{
 			if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
-				window_tabs.emplace_back(next_tab_id++, window_tabs);
+				window_tabs.emplace_back(next_tab_id++);
 
 			for (size_t n = 0; n < window_tabs.size();)
 			{
@@ -504,6 +647,11 @@ void update(const blt::gfx::window_data& data)
 				else
 					n++;
 			}
+
+			// stupid hack
+			for (const auto& ptr : tabs_to_add)
+				window_tabs.insert(window_tabs.begin() + static_cast<blt::ptrdiff_t>(ptr.second), *ptr.first);
+			tabs_to_add.clear();
 
 			ImGui::EndTabBar();
 		}

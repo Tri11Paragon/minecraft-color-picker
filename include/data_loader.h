@@ -106,6 +106,16 @@ struct comparator_euclidean_t final : comparator_interface_t
 	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
 };
 
+struct comparator_mean_sample_euclidean_t final : comparator_interface_t
+{
+	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
+};
+
+struct comparator_nearest_sample_euclidean_t final : comparator_interface_t
+{
+	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
+};
+
 struct image_t
 {
 	blt::i32 width, height;
