@@ -135,7 +135,7 @@ assets_t data_loader_t::load()
 	stmt.bind();
 	while (stmt.execute().has_row())
 	{
-		auto       column                                               = stmt.fetch();
+		auto       column                                                  = stmt.fetch();
 		const auto [namespace_str, block_name, texture_namespace, texture] = column.get<
 			std::string, std::string, std::string, std::string>();
 		assets.assets[namespace_str].block_to_textures[block_name].insert(texture_namespace + ":" += texture);
@@ -208,40 +208,31 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 	}
 }
 
-sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t&                image,
-															 const std::vector<blt::vec3>& average_color,
-															 const blt::i32                samples)
+sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& image)
 {
-	blt::i32   current_sample = 0;
-	const auto x_step         = image.width / samples;
-	const auto y_step         = image.height / samples;
-	for (blt::i32 x_pos = 0; x_pos < samples; x_pos++)
+	const sampler_oklab_op_t oklab{image, 1};
+	auto average_color = oklab.get_values()[0];
+	float     alpha = 0;
+	blt::vec3 color_difference;
+	for (blt::i32 y = 0; y < image.height; y++)
 	{
-		for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
+		for (blt::i32 x =0; x < image.width; x++)
 		{
-			float     alpha = 0;
-			blt::vec3 color_difference;
-			for (blt::i32 y = y_step * y_pos; y < std::min(image.height, y_step * (y_pos + 1)); y++)
-			{
-				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
-				{
-					const blt::vec3 value{
-						image.data[(y * image.width + x) * 4 + 0],
-						image.data[(y * image.width + x) * 4 + 1],
-						image.data[(y * image.width + x) * 4 + 2]
-					};
+			const blt::vec3 value{
+				image.data[(y * image.width + x) * 4 + 0],
+				image.data[(y * image.width + x) * 4 + 1],
+				image.data[(y * image.width + x) * 4 + 2]
+			};
 
-					const auto a    = image.data[(y * image.width + x) * 4 + 3];
-					auto       diff = (average_color[current_sample++] - value) * a;
-					color_difference += diff * diff;
-					alpha += a;
-				}
-			}
-			if (alpha != 0)
-				color_difference = color_difference.sqrt() / alpha;
-			color_differences.push_back(color_difference);
+			const auto a    = image.data[(y * image.width + x) * 4 + 3];
+			auto       diff = average_color - value.linear_rgb_to_oklab();
+			color_difference += diff * diff * a;
+			alpha += a;
 		}
 	}
+	if (alpha != 0)
+		color_difference = color_difference.sqrt() / alpha;
+	color_differences.push_back(color_difference);
 }
 
 float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)

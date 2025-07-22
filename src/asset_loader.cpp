@@ -400,7 +400,17 @@ std::optional<load_failure_t> asset_loader_t::load_assets(const std::string& ass
 		"minecraft:block/leaves"
 	};
 
-	static blt::hashset_t<std::string> solid_blocks{"minecraft:block/honey_block"};
+	static blt::hashset_t<std::string> solid_blocks{
+		"minecraft:block/honey_block",
+		"minecraft:block/dirt_path",
+		"minecraft:block/dried_kelp_block",
+		"minecraft:block/muddy_mangrove_roots",
+		"minecraft:block/mangrove_roots",
+		"minecraft:block/red_mushroom_block",
+		"minecraft:block/brown_mushroom_block",
+		"minecraft:block/mushroom_stem",
+		"minecraft:block/composter"
+	};
 
 	for (auto& [name, model] : map.models)
 	{

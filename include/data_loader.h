@@ -79,7 +79,7 @@ struct sampler_linear_rgb_op_t final : sampler_interface_t
 
 struct sampler_color_difference_op_t final : sampler_interface_t
 {
-	explicit sampler_color_difference_op_t(const image_t& image, const std::vector<blt::vec3>& average_color, blt::i32 samples);
+	explicit sampler_color_difference_op_t(const image_t& image);
 
 	[[nodiscard]] std::vector<blt::vec3> get_values() const override
 	{

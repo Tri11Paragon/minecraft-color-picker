@@ -73,13 +73,30 @@ struct tab_data_t
 		{
 			for (const auto& [name, images] : data)
 			{
-				auto       image_sampler = interface_generator(images.image, samples);
-				const auto dist          = comparator.compare(sampler, *image_sampler);
+				auto       image_sampler = color_sampler_t(images.image, samples);
+				const auto dist          = comparator.compare(sampler, image_sampler);
 				ordered_images.push_back(ordering_t{
 					namespace_str + ":" += name,
 					&images,
-					image_sampler->get_values().front(),
+					image_sampler.get_values().front(),
 					dist});
+			}
+		}
+
+		if (include_non_solid)
+		{
+			for (const auto& [namespace_str, data] : gpu_resources->non_solid_resources)
+			{
+				for (const auto& [name, images] : data)
+				{
+					auto       image_sampler = color_sampler_t(images.image, samples);
+					const auto dist          = comparator.compare(sampler, image_sampler);
+					ordered_images.push_back(ordering_t{
+						namespace_str + ":" += name,
+						&images,
+						image_sampler.get_values().front(),
+						dist});
+				}
 			}
 		}
 
@@ -134,7 +151,7 @@ struct tab_data_t
 			if (it == assets.assets.end())
 				continue;
 			auto [_, ns] = *it;
-			auto it2 = ns.block_to_textures.find(parts[1]);
+			auto it2     = ns.block_to_textures.find(parts[1]);
 			if (it2 == ns.block_to_textures.end())
 				continue;
 			auto& [block_name, textures] = *it2;
@@ -154,6 +171,7 @@ struct tab_data_t
 		HelpMarker(
 			"Prefix with # to use tags, separate by commas for multiple tags or blocks. Eg: #minecraft:block/leaves,minecraft:block/grass_block");
 		ImGui::Checkbox("Blacklist?", &is_blacklist);
+		ImGui::Checkbox("Extra Items", &include_non_solid);
 		ImGui::SameLine();
 		HelpMarker("If not enabled then list acts as a whitelist");
 		if (samples < 1)
@@ -227,7 +245,10 @@ struct tab_data_t
 
 	explicit tab_data_t(const size_t id):
 		tab_name("Unconfigured##" + std::to_string(id)),
-		id(id) {}
+		id(id)
+	{
+		list = get_blocks_control_list();
+	}
 
 	void render()
 	{
@@ -504,10 +525,10 @@ struct tab_data_t
 						ImGui::Text("Block: %s", block_pretty_name(selected_block).c_str());
 						ImGui::Image(selected_block_texture->texture->getTextureID(), ImVec2{64, 64});
 
-						auto image_sampler = interface_generator(selected_block_texture->image, samples);
+						color_sampler_t image_sampler(selected_block_texture->image, samples);
 						comparator_mean_sample_euclidean_t comparator;
 
-						auto ordered_images = make_ordering(*image_sampler, comparator);
+						auto ordered_images = make_ordering(image_sampler, comparator);
 
 						ImGui::Text(
 							"Click the image icon to remove it from the list. This is reset when the block changes.");
@@ -521,25 +542,24 @@ struct tab_data_t
 
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
 
-	std::string                 tab_name   = "Unconfigured";
-	tab_type_t                  configured = UNCONFIGURED;
 	std::string                 input_buf;
-	std::string                 control_list;
-	bool                        is_blacklist = true;
+	std::string                 tab_name          = "Unconfigured";
+	std::string                 control_list      = "#block/leaves,tnt";
+	bool                        is_blacklist      = true;
+	bool                        include_non_solid = false;
+	tab_type_t                  configured        = UNCONFIGURED;
+	int                         images            = 16;
+	int                         samples           = 1;
 	float                       color_picker_data[3]{};
 	blt::hashset_t<int>         skipped_index;
 	blt::hashset_t<std::string> list;
-	int                         images = 16;
 	size_t                      id;
-	int                         samples = 1;
 
 	std::string        selected_block;
 	const gpu_image_t* selected_block_texture = nullptr;
 
-	std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> interface_generator = [
-		](const auto& image, int samples) {
-		return std::make_unique<sampler_oklab_op_t>(image, samples);
-	};
+	using color_sampler_t = sampler_oklab_op_t;
+	using color_difference_sampler_t = sampler_color_difference_op_t;
 };
 
 
