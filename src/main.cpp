@@ -70,7 +70,10 @@ struct min_max_t
 	[[nodiscard]] float scale() const { return std::abs(max - min); }
 
 	// [[nodiscard]] float normalize(const float f) const { return f; }
-	[[nodiscard]] float normalize(const float f) const { return (f - min) / scale();; }
+	[[nodiscard]] float normalize(const float f) const
+	{
+		return (f - min) / scale();;
+	}
 
 	void reset()
 	{
@@ -295,17 +298,14 @@ struct tab_data_t
 				{
 					if (index >= ordered_images.size())
 						continue;
-					while (enable_cutoffs && ordered_images[index].dist_color > cutoff_color_difference) { ++index; }
-					if (index >= ordered_images.size())
-						continue;
-					while (enable_cutoffs && ordered_images[index].dist_kernel > cutoff_kernel_difference) { ++index; }
+					while (index < ordered_images.size() && enable_cutoffs && ordered_images[index].dist_color >
+						   cutoff_color_difference) { ++index; }
+					while (index < ordered_images.size() && enable_cutoffs && ordered_images[index].dist_kernel >
+						   cutoff_kernel_difference) { ++index; }
 					while (skipped_index.contains(index)) { ++index; }
-					if (index >= ordered_images.size())
-						continue;
-					while (!selected_block.empty() && ordered_images[index].name == selected_block) { ++index; }
-					if (index >= ordered_images.size())
-						continue;
-					while (list.contains(ordered_images[index].name)) { ++index; }
+					while (index < ordered_images.size() && !selected_block.empty() && ordered_images[index].name ==
+						   selected_block) { ++index; }
+					while (index < ordered_images.size() && list.contains(ordered_images[index].name)) { ++index; }
 					if (index >= ordered_images.size())
 						continue;
 					auto& [name, texture, average, distance, color_dist, kernel_dist] = ordered_images[index];
@@ -444,7 +444,9 @@ struct tab_data_t
 										color_picker_data,
 										ImGuiColorEditFlags_InputRGB |
 										ImGuiColorEditFlags_PickerHueWheel))
+				{
 					skipped_index.clear();
+				}
 				ImGui::EndChild();
 				sampler_single_value_t sampler{blt::vec3{color_picker_data}.linear_rgb_to_oklab(), samples * samples};
 
@@ -671,7 +673,7 @@ struct tab_data_t
 	bool                        is_blacklist             = true;
 	bool                        include_non_solid        = false;
 	bool                        pending_change           = true;
-	bool                        enable_noise             = true;
+	bool                        enable_noise             = false;
 	bool                        enable_cutoffs           = false;
 	float                       cutoff_color_difference  = 0;
 	float                       cutoff_kernel_difference = 0;

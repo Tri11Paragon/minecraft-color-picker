@@ -247,12 +247,16 @@ sampler_kernel_filter_op_t::sampler_kernel_filter_op_t(const image_t& image)
 			{
 				for (blt::i32 j = -size; j <= size; j++)
 				{
-					const auto px = x + i;
-					const auto py = y + i;
-					if (px < 0 || px >= image.width)
-						continue;
-					if (py < 0 || py >= image.height)
-						continue;
+					auto px = x + i;
+					auto py = y + i;
+					if (px < 0)
+						px = image.width + px;
+					if (px >= image.width)
+						px = image.width - px;
+					if (py < 0)
+						py = image.height + py;
+					if (py >= image.height)
+						py = image.height - py;
 					auto value = access_image(image, px, py);
 					avg += blt::make_vec3(value).linear_rgb_to_oklab() * value.a();
 					alpha += value.a();
@@ -271,7 +275,7 @@ sampler_kernel_filter_op_t::sampler_kernel_filter_op_t(const image_t& image)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const auto diff = average_color - kernel{}.calculate(image, x, y);
+			const auto diff = average_color - kernel{1}.calculate(image, x, y);
 			total += diff * diff;
 		}
 	}
