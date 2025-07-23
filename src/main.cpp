@@ -55,6 +55,31 @@ struct tab_data_t;
 std::vector<std::pair<std::unique_ptr<tab_data_t>, size_t>> tabs_to_add;
 
 
+struct min_max_t
+{
+	float min = std::numeric_limits<float>::max(), max = std::numeric_limits<float>::min();
+
+	void with(const float v)
+	{
+		if (v < min)
+			min = v;
+		if (v > max)
+			max = v;
+	}
+
+	[[nodiscard]] float scale() const { return std::abs(max - min); }
+
+	// [[nodiscard]] float normalize(const float f) const { return f; }
+	[[nodiscard]] float normalize(const float f) const { return (f - min) / scale();; }
+
+	void reset()
+	{
+		min = std::numeric_limits<float>::max();
+		max = std::numeric_limits<float>::min();
+	}
+};
+
+
 struct tab_data_t
 {
 	struct ordering_t
@@ -62,24 +87,48 @@ struct tab_data_t
 		std::string        name;
 		const gpu_image_t* texture;
 		blt::vec3          average;
-		float              dist;
+		float              dist_avg;
+		float              dist_color;
+		float              dist_kernel;
 	};
 
 
-	std::vector<ordering_t> make_ordering(sampler_interface_t& sampler, comparator_interface_t& comparator) const
+	std::vector<ordering_t> make_ordering(sampler_interface_t&    sampler,
+										  comparator_interface_t& comparator,
+										  std::optional<std::pair<sampler_interface_t&, sampler_interface_t&>>
+										  extra_samplers)
 	{
+		color_difference_vals.reset();
+		kernel_difference_vals.reset();
+		avg_difference_vals.reset();
 		std::vector<ordering_t> ordered_images;
 		for (const auto& [namespace_str, data] : gpu_resources->resources)
 		{
 			for (const auto& [name, images] : data)
 			{
 				auto       image_sampler = color_sampler_t(images.image, samples);
-				const auto dist          = comparator.compare(sampler, image_sampler);
+				float      dist_diff     = 0;
+				float      dist_kernel   = 0;
+				const auto dist_avg      = comparator.compare(sampler, image_sampler);
+				if (extra_samplers)
+				{
+					auto& [diff_sampler, kernel_sampler] = *extra_samplers;
+					auto  color_diff                     = color_difference_sampler_t{images.image};
+					auto  color_kernel                   = color_kernel_sampler_t{images.image};
+					dist_diff                            = comparator.compare(diff_sampler, color_diff);
+					dist_kernel                          = comparator.compare(kernel_sampler, color_kernel);
+					color_difference_vals.with(dist_diff);
+					kernel_difference_vals.with(dist_kernel);
+				}
+				avg_difference_vals.with(dist_avg);
+
 				ordered_images.push_back(ordering_t{
 					namespace_str + ":" += name,
 					&images,
 					image_sampler.get_values().front(),
-					dist});
+					dist_avg,
+					dist_diff,
+					dist_kernel});
 			}
 		}
 
@@ -90,19 +139,53 @@ struct tab_data_t
 				for (const auto& [name, images] : data)
 				{
 					auto       image_sampler = color_sampler_t(images.image, samples);
-					const auto dist          = comparator.compare(sampler, image_sampler);
+					float      dist_diff     = 0;
+					float      dist_kernel   = 0;
+					const auto dist_avg      = comparator.compare(sampler, image_sampler);
+					if (extra_samplers)
+					{
+						auto& [diff_sampler, kernel_sampler] = *extra_samplers;
+						auto  color_diff                     = color_difference_sampler_t{images.image};
+						auto  color_kernel                   = color_kernel_sampler_t{images.image};
+						dist_diff                            = comparator.compare(diff_sampler, color_diff);
+						dist_kernel                          = comparator.compare(kernel_sampler, color_kernel);
+						color_difference_vals.with(dist_diff);
+						kernel_difference_vals.with(dist_kernel);
+					}
+					avg_difference_vals.with(dist_avg);
+
 					ordered_images.push_back(ordering_t{
 						namespace_str + ":" += name,
 						&images,
 						image_sampler.get_values().front(),
-						dist});
+						dist_avg,
+						dist_diff,
+						dist_kernel});
 				}
 			}
 		}
 
+		auto l_weights = weights;
+
+		if (!enable_noise || !extra_samplers)
+		{
+			l_weights[1] = 0;
+			l_weights[2] = 0;
+		}
+
 		std::stable_sort(ordered_images.begin(),
 						 ordered_images.end(),
-						 [](const ordering_t& a, const ordering_t& b) { return a.dist < b.dist; });
+						 [&l_weights, this](const ordering_t& a, const ordering_t& b) {
+							 const auto a_avg =
+								 l_weights[0] * avg_difference_vals.normalize(a.dist_avg) + l_weights[1] *
+								 color_difference_vals.normalize(a.dist_color) + l_weights[2] * kernel_difference_vals.
+								 normalize(a.dist_kernel);
+							 const auto b_avg =
+								 l_weights[0] * avg_difference_vals.normalize(b.dist_avg) + l_weights[1] *
+								 color_difference_vals.normalize(b.dist_color) + l_weights[2] * kernel_difference_vals.
+								 normalize(b.dist_kernel);
+							 return a_avg < b_avg;
+						 });
 
 		return ordered_images;
 	}
@@ -164,16 +247,37 @@ struct tab_data_t
 	void draw_order(std::vector<ordering_t>& ordered_images)
 	{
 		ImGui::InputInt("Images to Display", &images);
-		ImGui::InputInt("Samples (per axis)", &samples);
+		pending_change |= ImGui::InputInt("Samples (per axis)", &samples);
 		if (ImGui::InputText("Access Control String", &control_list))
 			list = get_blocks_control_list();
 		ImGui::SameLine();
 		HelpMarker(
 			"Prefix with # to use tags, separate by commas for multiple tags or blocks. Eg: #minecraft:block/leaves,minecraft:block/grass_block");
 		ImGui::Checkbox("Blacklist?", &is_blacklist);
-		ImGui::Checkbox("Extra Items", &include_non_solid);
 		ImGui::SameLine();
 		HelpMarker("If not enabled then list acts as a whitelist");
+		pending_change |= ImGui::Checkbox("Extra Items", &include_non_solid);
+		pending_change |= ImGui::SliderFloat("Average Color Weight", &weights[0], 0, 1);
+		pending_change |= ImGui::Checkbox("Enable Noise In Selection", &enable_noise);
+		if (enable_noise)
+		{
+			pending_change |= ImGui::SliderFloat("Color Difference Weight", &weights[1], 0, 1);
+			pending_change |= ImGui::SliderFloat("Kernel Difference Weight", &weights[2], 0, 1);
+		}
+		ImGui::Checkbox("Enable Noise Cutoffs", &enable_cutoffs);
+		if (enable_cutoffs)
+		{
+			ImGui::SliderFloat("Color Difference Cutoff",
+							   &cutoff_color_difference,
+							   color_difference_vals.min,
+							   color_difference_vals.max,
+							   "%.9f");
+			ImGui::SliderFloat("Kernel Difference Cutoff",
+							   &cutoff_kernel_difference,
+							   kernel_difference_vals.min,
+							   kernel_difference_vals.max,
+							   "%.9f");
+		}
 		if (samples < 1)
 			samples = 1;
 		if (samples > 8)
@@ -191,10 +295,20 @@ struct tab_data_t
 				{
 					if (index >= ordered_images.size())
 						continue;
+					while (enable_cutoffs && ordered_images[index].dist_color > cutoff_color_difference) { ++index; }
+					if (index >= ordered_images.size())
+						continue;
+					while (enable_cutoffs && ordered_images[index].dist_kernel > cutoff_kernel_difference) { ++index; }
 					while (skipped_index.contains(index)) { ++index; }
+					if (index >= ordered_images.size())
+						continue;
 					while (!selected_block.empty() && ordered_images[index].name == selected_block) { ++index; }
+					if (index >= ordered_images.size())
+						continue;
 					while (list.contains(ordered_images[index].name)) { ++index; }
-					auto& [name, texture, average, distance] = ordered_images[index];
+					if (index >= ordered_images.size())
+						continue;
+					auto& [name, texture, average, distance, color_dist, kernel_dist] = ordered_images[index];
 
 					ImGui::Image(texture->texture->getTextureID(),
 								 ImVec2{
@@ -211,6 +325,7 @@ struct tab_data_t
 					if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
 					{
 						ImGui::Text("%s", block_pretty_name(name).c_str());
+						ImGui::Text("[%f | %f | %f]", distance, color_dist, kernel_dist);
 						if (ImGui::Button("Find Similar"))
 						{
 							tab_data_t data{next_tab_id++};
@@ -245,10 +360,7 @@ struct tab_data_t
 
 	explicit tab_data_t(const size_t id):
 		tab_name("Unconfigured##" + std::to_string(id)),
-		id(id)
-	{
-		list = get_blocks_control_list();
-	}
+		id(id) { list = get_blocks_control_list(); }
 
 	void render()
 	{
@@ -338,7 +450,7 @@ struct tab_data_t
 
 				comparator_mean_sample_euclidean_t comparator;
 
-				auto ordered_images = make_ordering(sampler, comparator);
+				ordered_images = make_ordering(sampler, comparator, {});
 
 				// ImGui::BeginChild("##Selector", ImVec2(0, 0));
 				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
@@ -518,6 +630,7 @@ struct tab_data_t
 					{
 						selected_block         = s[*block].block_name;
 						selected_block_texture = s[*block].texture;
+						pending_change         = true;
 					}
 
 					if (selected_block_texture != nullptr)
@@ -525,10 +638,20 @@ struct tab_data_t
 						ImGui::Text("Block: %s", block_pretty_name(selected_block).c_str());
 						ImGui::Image(selected_block_texture->texture->getTextureID(), ImVec2{64, 64});
 
-						color_sampler_t image_sampler(selected_block_texture->image, samples);
-						comparator_mean_sample_euclidean_t comparator;
+						if (pending_change)
+						{
+							color_sampler_t                    image_sampler(selected_block_texture->image, samples);
+							color_difference_sampler_t         color_sampler(selected_block_texture->image);
+							color_kernel_sampler_t             kernel_sampler(selected_block_texture->image);
+							comparator_mean_sample_euclidean_t comparator;
 
-						auto ordered_images = make_ordering(image_sampler, comparator);
+							ordered_images = make_ordering(image_sampler,
+														   comparator,
+														   std::pair<sampler_interface_t&, sampler_interface_t&>{
+															   color_sampler,
+															   kernel_sampler});
+							pending_change = false;
+						}
 
 						ImGui::Text(
 							"Click the image icon to remove it from the list. This is reset when the block changes.");
@@ -543,23 +666,34 @@ struct tab_data_t
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
 
 	std::string                 input_buf;
-	std::string                 tab_name          = "Unconfigured";
-	std::string                 control_list      = "#block/leaves,tnt";
-	bool                        is_blacklist      = true;
-	bool                        include_non_solid = false;
-	tab_type_t                  configured        = UNCONFIGURED;
-	int                         images            = 16;
-	int                         samples           = 1;
+	std::string                 tab_name                 = "Unconfigured";
+	std::string                 control_list             = "#block/leaves,tnt";
+	bool                        is_blacklist             = true;
+	bool                        include_non_solid        = false;
+	bool                        pending_change           = true;
+	bool                        enable_noise             = true;
+	bool                        enable_cutoffs           = false;
+	float                       cutoff_color_difference  = 0;
+	float                       cutoff_kernel_difference = 0;
+	tab_type_t                  configured               = UNCONFIGURED;
+	int                         images                   = 16;
+	int                         samples                  = 1;
+	min_max_t                   avg_difference_vals;
+	min_max_t                   color_difference_vals;
+	min_max_t                   kernel_difference_vals;
 	float                       color_picker_data[3]{};
 	blt::hashset_t<int>         skipped_index;
 	blt::hashset_t<std::string> list;
 	size_t                      id;
+	std::array<float, 3>        weights{0.5, 0.25, 0.25};
+	std::vector<ordering_t>     ordered_images;
 
 	std::string        selected_block;
 	const gpu_image_t* selected_block_texture = nullptr;
 
-	using color_sampler_t = sampler_oklab_op_t;
+	using color_sampler_t            = sampler_oklab_op_t;
 	using color_difference_sampler_t = sampler_color_difference_op_t;
+	using color_kernel_sampler_t     = sampler_kernel_filter_op_t;
 };
 
 

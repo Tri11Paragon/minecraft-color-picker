@@ -25,6 +25,16 @@ database_t load_database(const std::filesystem::path& path)
 	return db;
 }
 
+blt::vec4 access_image(const image_t& image, const blt::i32 x, const blt::i32 y)
+{
+	return {
+		image.data[(y * image.width + x) * 4 + 0],
+		image.data[(y * image.width + x) * 4 + 1],
+		image.data[(y * image.width + x) * 4 + 2],
+		image.data[(y * image.width + x) * 4 + 3]
+	};
+}
+
 assets_t data_loader_t::load()
 {
 	constexpr auto SQL  = "SELECT * FROM solid_textures";
@@ -158,14 +168,10 @@ sampler_oklab_op_t::sampler_oklab_op_t(const image_t& image, const blt::i32 samp
 			{
 				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
-					const blt::vec3 value{
-						image.data[(y * image.width + x) * 4 + 0],
-						image.data[(y * image.width + x) * 4 + 1],
-						image.data[(y * image.width + x) * 4 + 2]
-					};
+					auto value = access_image(image, x, y);
 
-					const auto a = image.data[(y * image.width + x) * 4 + 3];
-					average += value.linear_rgb_to_oklab() * a;
+					const auto a = value.a();
+					average += blt::make_vec3(value).linear_rgb_to_oklab() * a;
 					alpha += a;
 				}
 			}
@@ -190,14 +196,10 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 			{
 				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
 				{
-					const blt::vec3 value{
-						image.data[(y * image.width + x) * 4 + 0],
-						image.data[(y * image.width + x) * 4 + 1],
-						image.data[(y * image.width + x) * 4 + 2]
-					};
+					auto value = access_image(image, x, y);
 
-					const auto a = image.data[(y * image.width + x) * 4 + 3];
-					average += value * a;
+					const auto a = value.a();
+					average += blt::make_vec3(value) * a;
 					alpha += a;
 				}
 			}
@@ -211,21 +213,17 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& image)
 {
 	const sampler_oklab_op_t oklab{image, 1};
-	auto average_color = oklab.get_values()[0];
-	float     alpha = 0;
-	blt::vec3 color_difference;
+	auto                     average_color = oklab.get_values()[0];
+	float                    alpha         = 0;
+	blt::vec3                color_difference;
 	for (blt::i32 y = 0; y < image.height; y++)
 	{
-		for (blt::i32 x =0; x < image.width; x++)
+		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const blt::vec3 value{
-				image.data[(y * image.width + x) * 4 + 0],
-				image.data[(y * image.width + x) * 4 + 1],
-				image.data[(y * image.width + x) * 4 + 2]
-			};
+			auto value = access_image(image, x, y);
 
-			const auto a    = image.data[(y * image.width + x) * 4 + 3];
-			auto       diff = average_color - value.linear_rgb_to_oklab();
+			const auto a    = value.a();
+			auto       diff = average_color - blt::make_vec3(value).linear_rgb_to_oklab();
 			color_difference += diff * diff * a;
 			alpha += a;
 		}
@@ -233,6 +231,51 @@ sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& imag
 	if (alpha != 0)
 		color_difference = color_difference.sqrt() / alpha;
 	color_differences.push_back(color_difference);
+}
+
+sampler_kernel_filter_op_t::sampler_kernel_filter_op_t(const image_t& image)
+{
+	struct kernel
+	{
+		explicit kernel(const blt::i32 size = 2): size(size) {}
+
+		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
+		{
+			blt::vec3 avg;
+			float     alpha = 0.0f;
+			for (blt::i32 i = -size; i <= size; i++)
+			{
+				for (blt::i32 j = -size; j <= size; j++)
+				{
+					const auto px = x + i;
+					const auto py = y + i;
+					if (px < 0 || px >= image.width)
+						continue;
+					if (py < 0 || py >= image.height)
+						continue;
+					auto value = access_image(image, px, py);
+					avg += blt::make_vec3(value).linear_rgb_to_oklab() * value.a();
+					alpha += value.a();
+				}
+			}
+			return avg / alpha;
+		}
+
+		blt::i32 size;
+	};
+
+	const sampler_oklab_op_t oklab{image, 1};
+	const auto               average_color = oklab.get_values()[0];
+	blt::vec3                total;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			const auto diff = average_color - kernel{}.calculate(image, x, y);
+			total += diff * diff;
+		}
+	}
+	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
 }
 
 float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)

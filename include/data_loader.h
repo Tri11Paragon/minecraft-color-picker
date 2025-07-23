@@ -30,6 +30,8 @@ database_t load_database(const std::filesystem::path& path);
 
 struct image_t;
 
+blt::vec4 access_image(const image_t& image, blt::i32 x, blt::i32 y);
+
 struct sampler_interface_t
 {
 	virtual ~sampler_interface_t() = default;
@@ -87,6 +89,18 @@ struct sampler_color_difference_op_t final : sampler_interface_t
 	}
 
 	std::vector<blt::vec3> color_differences;
+};
+
+struct sampler_kernel_filter_op_t final : sampler_interface_t
+{
+	explicit sampler_kernel_filter_op_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return kernel_averages;
+	}
+
+	std::vector<blt::vec3> kernel_averages;
 };
 
 struct comparator_interface_t
