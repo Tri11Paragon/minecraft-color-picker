@@ -722,8 +722,111 @@ struct tab_data_t
 	const gpu_image_t* selected_block_texture = nullptr;
 
 	std::vector<color_relationship_t> color_relationships{
-		color_relationship_t{{color_relationship_t::value_t{30}, color_relationship_t::value_t{-30}}, "An"}
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{-60},
+				color_relationship_t::value_t{-30},
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{30},
+				color_relationship_t::value_t{60}
+			},
+			"Analogous"},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{180}
+			},
+			"Complementary"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{-150},
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{150}
+			},
+			"Split-Complementary"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{-120},
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{120}
+			},
+			"Triadic"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{90},
+				color_relationship_t::value_t{180},
+				color_relationship_t::value_t{270}
+			},
+			"Square"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{30},
+				color_relationship_t::value_t{180},
+				color_relationship_t::value_t{210}
+			},
+			"Tetradic (30)"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{60},
+				color_relationship_t::value_t{180},
+				color_relationship_t::value_t{240}
+			},
+			"Tetradic (60)"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{180 - 30},
+				color_relationship_t::value_t{180},
+				color_relationship_t::value_t{180 + 30}
+			},
+			"Accent Complement"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{90}
+			},
+			"Clash"
+		},
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{72},
+				color_relationship_t::value_t{144},
+				color_relationship_t::value_t{216},
+				color_relationship_t::value_t{288}
+			},
+			"Pentadic"
+		},
+		color_relationship_t{
+				{
+					color_relationship_t::value_t{60},
+					color_relationship_t::value_t{120},
+					color_relationship_t::value_t{180},
+					color_relationship_t::value_t{240},
+					color_relationship_t::value_t{300}
+				},
+			"Hexadic"
+			}
 	};
+
+	static float wrap_hue(float hue)
+	{
+		while (hue >= 360)
+			hue -= 360;
+		while (hue < 0)
+			hue += 360;
+		return hue;
+	}
 
 	using color_sampler_t            = sampler_oklab_op_t;
 	using color_difference_sampler_t = sampler_color_difference_op_t;
