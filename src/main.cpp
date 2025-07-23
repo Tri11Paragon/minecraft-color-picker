@@ -17,6 +17,7 @@
 #include <asset_loader.h>
 #include <block_picker.h>
 #include <filesystem>
+#include <utility>
 #include <blt/gfx/window.h>
 #include "blt/gfx/renderer/resource_manager.h"
 #include "blt/gfx/renderer/batch_2d_renderer.h"
@@ -93,46 +94,86 @@ struct tab_data_t
 		float              dist_avg;
 		float              dist_color;
 		float              dist_kernel;
+
+		ordering_t(std::string        name,
+				   const gpu_image_t* texture,
+				   const blt::vec3&   average,
+				   const float        dist_avg,
+				   const float        dist_color,
+				   const float        dist_kernel) : name{std::move(name)},
+													 texture{texture},
+													 average{average},
+													 dist_avg{dist_avg},
+													 dist_color{dist_color},
+													 dist_kernel{dist_kernel} {}
 	};
 
+
+	struct color_relationship_t
+	{
+		struct value_t
+		{
+			float     offset = 0;
+			blt::vec3 current_color;
+
+			explicit value_t(const float offset) : offset{offset} {}
+		};
+
+
+		std::vector<value_t> colors;
+		std::string          name;
+
+		color_relationship_t(const std::vector<value_t>& colors, std::string name) : colors{colors},
+			name{std::move(name)} {}
+	};
+
+
+	void process_resource_for_order(const std::string&      namespace_str,
+									const std::string&      name,
+									const gpu_image_t&      images,
+									sampler_interface_t&    sampler,
+									comparator_interface_t& comparator,
+									std::optional<std::pair<sampler_interface_t&, sampler_interface_t&>>
+									extra_samplers)
+	{
+		auto       image_sampler = color_sampler_t(images.image, samples);
+		float      dist_diff     = 0;
+		float      dist_kernel   = 0;
+		const auto dist_avg      = comparator.compare(sampler, image_sampler);
+		if (extra_samplers)
+		{
+			auto& [diff_sampler, kernel_sampler] = *extra_samplers;
+			auto  color_diff                     = color_difference_sampler_t{images.image};
+			auto  color_kernel                   = color_kernel_sampler_t{images.image};
+			dist_diff                            = comparator.compare(diff_sampler, color_diff);
+			dist_kernel                          = comparator.compare(kernel_sampler, color_kernel);
+			color_difference_vals.with(dist_diff);
+			kernel_difference_vals.with(dist_kernel);
+		}
+		avg_difference_vals.with(dist_avg);
+
+		ordered_images.emplace_back(
+			namespace_str + ":" += name,
+			&images,
+			image_sampler.get_values().front(),
+			dist_avg,
+			dist_diff,
+			dist_kernel);
+	}
 
 	std::vector<ordering_t> make_ordering(sampler_interface_t&    sampler,
 										  comparator_interface_t& comparator,
 										  std::optional<std::pair<sampler_interface_t&, sampler_interface_t&>>
 										  extra_samplers)
 	{
+		ordered_images.clear();
 		color_difference_vals.reset();
 		kernel_difference_vals.reset();
 		avg_difference_vals.reset();
-		std::vector<ordering_t> ordered_images;
 		for (const auto& [namespace_str, data] : gpu_resources->resources)
 		{
 			for (const auto& [name, images] : data)
-			{
-				auto       image_sampler = color_sampler_t(images.image, samples);
-				float      dist_diff     = 0;
-				float      dist_kernel   = 0;
-				const auto dist_avg      = comparator.compare(sampler, image_sampler);
-				if (extra_samplers)
-				{
-					auto& [diff_sampler, kernel_sampler] = *extra_samplers;
-					auto  color_diff                     = color_difference_sampler_t{images.image};
-					auto  color_kernel                   = color_kernel_sampler_t{images.image};
-					dist_diff                            = comparator.compare(diff_sampler, color_diff);
-					dist_kernel                          = comparator.compare(kernel_sampler, color_kernel);
-					color_difference_vals.with(dist_diff);
-					kernel_difference_vals.with(dist_kernel);
-				}
-				avg_difference_vals.with(dist_avg);
-
-				ordered_images.push_back(ordering_t{
-					namespace_str + ":" += name,
-					&images,
-					image_sampler.get_values().front(),
-					dist_avg,
-					dist_diff,
-					dist_kernel});
-			}
+				process_resource_for_order(namespace_str, name, images, sampler, comparator, extra_samplers);
 		}
 
 		if (include_non_solid)
@@ -140,31 +181,7 @@ struct tab_data_t
 			for (const auto& [namespace_str, data] : gpu_resources->non_solid_resources)
 			{
 				for (const auto& [name, images] : data)
-				{
-					auto       image_sampler = color_sampler_t(images.image, samples);
-					float      dist_diff     = 0;
-					float      dist_kernel   = 0;
-					const auto dist_avg      = comparator.compare(sampler, image_sampler);
-					if (extra_samplers)
-					{
-						auto& [diff_sampler, kernel_sampler] = *extra_samplers;
-						auto  color_diff                     = color_difference_sampler_t{images.image};
-						auto  color_kernel                   = color_kernel_sampler_t{images.image};
-						dist_diff                            = comparator.compare(diff_sampler, color_diff);
-						dist_kernel                          = comparator.compare(kernel_sampler, color_kernel);
-						color_difference_vals.with(dist_diff);
-						kernel_difference_vals.with(dist_kernel);
-					}
-					avg_difference_vals.with(dist_avg);
-
-					ordered_images.push_back(ordering_t{
-						namespace_str + ":" += name,
-						&images,
-						image_sampler.get_values().front(),
-						dist_avg,
-						dist_diff,
-						dist_kernel});
-				}
+					process_resource_for_order(namespace_str, name, images, sampler, comparator, extra_samplers);
 			}
 		}
 
@@ -286,29 +303,37 @@ struct tab_data_t
 		if (samples > 8)
 			samples = 8;
 		const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
+
+		const auto iter = blt::enumerate(ordered_images).filter([this](const auto& beep) {
+			const auto& [index, image] = beep;
+			if (enable_cutoffs && image.dist_color > cutoff_color_difference)
+				return false;
+			if (enable_cutoffs && image.dist_kernel > cutoff_kernel_difference)
+				return false;
+			if (skipped_index.contains(index))
+				return false;
+			if (list.contains(image.name))
+				return false;
+			if (image.name == selected_block)
+				return false;
+			return true;
+		});
+		auto begin = iter.begin();
 		if (ImGui::BeginChild("ChildImageHolder"))
 		{
 			if (ImGui::BeginTable("ImageSelectionTable",
 								  amount_per_line,
 								  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
 			{
-				int index = 0;
 				ImGui::TableNextColumn();
-				for (int i = 0; i < images; i++)
+				for (int i = 0; i < images; i++, ++begin)
 				{
-					if (index >= ordered_images.size())
+					while (begin != iter.end() && !(*begin).has_value())
+						++begin;
+					if (begin == iter.end())
 						continue;
-					while (index < ordered_images.size() && enable_cutoffs && ordered_images[index].dist_color >
-						   cutoff_color_difference) { ++index; }
-					while (index < ordered_images.size() && enable_cutoffs && ordered_images[index].dist_kernel >
-						   cutoff_kernel_difference) { ++index; }
-					while (skipped_index.contains(index)) { ++index; }
-					while (index < ordered_images.size() && !selected_block.empty() && ordered_images[index].name ==
-						   selected_block) { ++index; }
-					while (index < ordered_images.size() && list.contains(ordered_images[index].name)) { ++index; }
-					if (index >= ordered_images.size())
-						continue;
-					auto& [name, texture, average, distance, color_dist, kernel_dist] = ordered_images[index];
+					auto  [index, tab_order]                                          = (*begin).value();
+					auto& [name, texture, average, distance, color_dist, kernel_dist] = tab_order;
 
 					ImGui::Image(texture->texture->getTextureID(),
 								 ImVec2{
@@ -322,7 +347,7 @@ struct tab_data_t
 						ImGui::Text("%s", block_pretty_name(name).c_str());
 						ImGui::EndTooltip();
 					}
-					if (ImGui::BeginPopupContextItem(std::to_string(index).c_str()))
+					if (ImGui::BeginPopupContextItem(name.c_str()))
 					{
 						ImGui::Text("%s", block_pretty_name(name).c_str());
 						ImGui::Text("[%f | %f | %f]", distance, color_dist, kernel_dist);
@@ -343,7 +368,6 @@ struct tab_data_t
 							ImGui::CloseCurrentPopup();
 						ImGui::EndPopup();
 					}
-					++index;
 				}
 				ImGui::EndTable();
 			}
@@ -354,7 +378,7 @@ struct tab_data_t
 
 	enum tab_type_t
 	{
-		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER, BLOCK_SELECT
+		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER, BLOCK_SELECT, COLOR_WHEEL
 	};
 
 
@@ -426,8 +450,11 @@ struct tab_data_t
 						configured = BLOCK_SELECT;
 						tab_name   = "Block Picker##" + std::to_string(id);
 					}
-					if (ImGui::Button("Controls", ImVec2(btnWidth, btnHeight)))
-						/* … */;
+					if (ImGui::Button("Color Relationship Helper", ImVec2(btnWidth, btnHeight)))
+					{
+						configured = COLOR_WHEEL;
+						tab_name   = "Color Wheel##" + std::to_string(id);
+					}
 					if (ImGui::Button("Browser", ImVec2(btnWidth, btnHeight)))
 					{
 						configured = ASSET_BROWSER;
@@ -443,10 +470,7 @@ struct tab_data_t
 				if (ImGui::ColorPicker3("##SelectBlocks",
 										color_picker_data,
 										ImGuiColorEditFlags_InputRGB |
-										ImGuiColorEditFlags_PickerHueWheel))
-				{
-					skipped_index.clear();
-				}
+										ImGuiColorEditFlags_PickerHueWheel)) { skipped_index.clear(); }
 				ImGui::EndChild();
 				sampler_single_value_t sampler{blt::vec3{color_picker_data}.linear_rgb_to_oklab(), samples * samples};
 
@@ -662,6 +686,10 @@ struct tab_data_t
 				}
 				ImGui::EndChild();
 				break;
+			case COLOR_WHEEL:
+				if (ImGui::BeginChild("##ColorWheel", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY)) {}
+				ImGui::EndChild();
+				break;
 		}
 	}
 
@@ -687,11 +715,15 @@ struct tab_data_t
 	blt::hashset_t<int>         skipped_index;
 	blt::hashset_t<std::string> list;
 	size_t                      id;
-	std::array<float, 3>        weights{0.5, 0.25, 0.25};
+	std::array<float, 3>        weights{0.5, 0.15, 0.40};
 	std::vector<ordering_t>     ordered_images;
 
 	std::string        selected_block;
 	const gpu_image_t* selected_block_texture = nullptr;
+
+	std::vector<color_relationship_t> color_relationships{
+		color_relationship_t{{color_relationship_t::value_t{30}, color_relationship_t::value_t{-30}}, "An"}
+	};
 
 	using color_sampler_t            = sampler_oklab_op_t;
 	using color_difference_sampler_t = sampler_color_difference_op_t;
