@@ -737,65 +737,68 @@ struct tab_data_t
 				ImGui::EndChild();
 				break;
 			case COLOR_WHEEL:
-				if (ImGui::BeginChild("##ColorWheel", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY))
+				if (ImGui::BeginChild("##Parent", avail, false, ImGuiWindowFlags_HorizontalScrollbar))
 				{
-					ImGui::Text("Relationship Selector");
-					if (ImGui::BeginListBox("##Relationship Selector"))
+					if (ImGui::BeginChild("##ColorWheel", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
 					{
-						for (const auto& [n, item] : blt::enumerate(color_relationships))
+						ImGui::Text("Relationship Selector");
+						if (ImGui::BeginListBox("##Relationship Selector"))
 						{
-							const bool is_selected = selected == n;
-							if (ImGui::Selectable(item.name.c_str(), is_selected))
+							for (const auto& [n, item] : blt::enumerate(color_relationships))
 							{
-								selected = n;
-								process_update(color_relationships[selected], 0);
-							}
-							if (is_selected)
-								ImGui::SetItemDefaultFocus();
-						}
-
-						ImGui::EndListBox();
-					}
-					ImGui::SameLine();
-					draw_config_tools();
-				}
-				ImGui::EndChild();
-				{
-					auto& current_mode = color_relationships[selected];
-
-					auto av2 = ImGui::GetContentRegionAvail();
-					if (ImGui::BeginChild("##ColorContainers",
-										  av2,
-										  false,
-										  ImGuiWindowFlags_HorizontalScrollbar))
-					{
-						for (const auto& [i, selector] : blt::enumerate(current_mode.colors))
-						{
-							float data[3];
-							data[0] = selector.current_color[0];
-							data[1] = selector.current_color[1];
-							data[2] = selector.current_color[2];
-							if (ImGui::BeginChild(("SillyColors" + std::to_string(i)).c_str(), ImVec2(0,0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
-							{
-								if (ImGui::ColorPicker3(("##SelectAna" + std::to_string(i)).c_str(),
-														data,
-														ImGuiColorEditFlags_InputRGB |
-														ImGuiColorEditFlags_PickerHueWheel))
+								const bool is_selected = selected == n;
+								if (ImGui::Selectable(item.name.c_str(), is_selected))
 								{
-									selector.current_color[0] = data[0];
-									selector.current_color[1] = data[1];
-									selector.current_color[2] = data[2];
-									process_update(current_mode, i);
+									selected = n;
+									process_update(color_relationships[selected], 0);
 								}
-								draw_blocks(selector.ordering, "ImageSelectionTable" + std::to_string(selector.offset));
+								if (is_selected)
+									ImGui::SetItemDefaultFocus();
 							}
-							ImGui::EndChild();
-							if (i != current_mode.colors.size() - 1)
-								ImGui::SameLine();
+
+							ImGui::EndListBox();
 						}
+						ImGui::SameLine();
+						draw_config_tools();
 					}
 					ImGui::EndChild();
+					{
+						auto& current_mode = color_relationships[selected];
+
+						// auto av2 = ImGui::GetContentRegionAvail();
+						if (ImGui::BeginChild("##ColorContainers",
+											  ImVec2(0,0),
+											  ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
+						{
+							for (const auto& [i, selector] : blt::enumerate(current_mode.colors))
+							{
+								float data[3];
+								data[0] = selector.current_color[0];
+								data[1] = selector.current_color[1];
+								data[2] = selector.current_color[2];
+								if (ImGui::BeginChild(("SillyColors" + std::to_string(i)).c_str(), ImVec2(0,0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
+								{
+									if (ImGui::ColorPicker3(("##SelectAna" + std::to_string(i)).c_str(),
+															data,
+															ImGuiColorEditFlags_InputRGB |
+															ImGuiColorEditFlags_PickerHueWheel))
+									{
+										selector.current_color[0] = data[0];
+										selector.current_color[1] = data[1];
+										selector.current_color[2] = data[2];
+										process_update(current_mode, i);
+									}
+									draw_blocks(selector.ordering, "ImageSelectionTable" + std::to_string(selector.offset));
+								}
+								ImGui::EndChild();
+								if (i != current_mode.colors.size() - 1)
+									ImGui::SameLine();
+							}
+						}
+						ImGui::EndChild();
+					}
 				}
+				ImGui::EndChild();
 				break;
 		}
 	}
