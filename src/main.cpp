@@ -113,8 +113,9 @@ struct tab_data_t
 	{
 		struct value_t
 		{
-			float     offset = 0;
-			blt::vec3 current_color;
+			float                   offset = 0;
+			blt::vec3               current_color;
+			std::vector<ordering_t> ordering;
 
 			explicit value_t(const float offset) : offset{offset} {}
 		};
@@ -128,11 +129,12 @@ struct tab_data_t
 	};
 
 
-	void process_resource_for_order(const std::string&      namespace_str,
-									const std::string&      name,
-									const gpu_image_t&      images,
-									sampler_interface_t&    sampler,
-									comparator_interface_t& comparator,
+	void process_resource_for_order(std::vector<ordering_t>& order,
+									const std::string&       namespace_str,
+									const std::string&       name,
+									const gpu_image_t&       images,
+									sampler_interface_t&     sampler,
+									comparator_interface_t&  comparator,
 									std::optional<std::pair<sampler_interface_t&, sampler_interface_t&>>
 									extra_samplers)
 	{
@@ -152,7 +154,7 @@ struct tab_data_t
 		}
 		avg_difference_vals.with(dist_avg);
 
-		ordered_images.emplace_back(
+		order.emplace_back(
 			namespace_str + ":" += name,
 			&images,
 			image_sampler.get_values().front(),
@@ -166,14 +168,14 @@ struct tab_data_t
 										  std::optional<std::pair<sampler_interface_t&, sampler_interface_t&>>
 										  extra_samplers)
 	{
-		ordered_images.clear();
+		std::vector<ordering_t> order;
 		color_difference_vals.reset();
 		kernel_difference_vals.reset();
 		avg_difference_vals.reset();
 		for (const auto& [namespace_str, data] : gpu_resources->resources)
 		{
 			for (const auto& [name, images] : data)
-				process_resource_for_order(namespace_str, name, images, sampler, comparator, extra_samplers);
+				process_resource_for_order(order, namespace_str, name, images, sampler, comparator, extra_samplers);
 		}
 
 		if (include_non_solid)
@@ -181,7 +183,7 @@ struct tab_data_t
 			for (const auto& [namespace_str, data] : gpu_resources->non_solid_resources)
 			{
 				for (const auto& [name, images] : data)
-					process_resource_for_order(namespace_str, name, images, sampler, comparator, extra_samplers);
+					process_resource_for_order(order, namespace_str, name, images, sampler, comparator, extra_samplers);
 			}
 		}
 
@@ -193,8 +195,8 @@ struct tab_data_t
 			l_weights[2] = 0;
 		}
 
-		std::stable_sort(ordered_images.begin(),
-						 ordered_images.end(),
+		std::stable_sort(order.begin(),
+						 order.end(),
 						 [&l_weights, this](const ordering_t& a, const ordering_t& b) {
 							 const auto a_avg =
 								 l_weights[0] * avg_difference_vals.normalize(a.dist_avg) + l_weights[1] *
@@ -207,7 +209,7 @@ struct tab_data_t
 							 return a_avg < b_avg;
 						 });
 
-		return ordered_images;
+		return order;
 	}
 
 	[[nodiscard]] blt::hashset_t<std::string> get_blocks_control_list() const
@@ -264,7 +266,7 @@ struct tab_data_t
 		return list;
 	}
 
-	void draw_order(std::vector<ordering_t>& ordered_images)
+	void draw_config_tools()
 	{
 		ImGui::InputInt("Images to Display", &images);
 		pending_change |= ImGui::InputInt("Samples (per axis)", &samples);
@@ -302,6 +304,12 @@ struct tab_data_t
 			samples = 1;
 		if (samples > 8)
 			samples = 8;
+	}
+
+	void draw_blocks(std::vector<ordering_t>& ordered_images)
+	{
+		if (ordered_images.empty())
+			return;
 		const auto amount_per_line = static_cast<int>(std::max(std::sqrt(images), 4.0));
 
 		const auto iter = blt::enumerate(ordered_images).filter([this](const auto& beep) {
@@ -314,11 +322,12 @@ struct tab_data_t
 				return false;
 			if (list.contains(image.name))
 				return false;
-			if (image.name == selected_block)
+			if (!selected_block.empty() && image.name == selected_block)
 				return false;
 			return true;
 		});
 		auto begin = iter.begin();
+		BLT_TRACE("{} Equals {} {}", ordered_images.size(), iter.begin() == iter.end(), begin != iter.end());
 		if (ImGui::BeginChild("ChildImageHolder"))
 		{
 			if (ImGui::BeginTable("ImageSelectionTable",
@@ -375,6 +384,42 @@ struct tab_data_t
 		ImGui::EndChild();
 	}
 
+	void draw_order(std::vector<ordering_t>& ordered_images)
+	{
+		draw_config_tools();
+		draw_blocks(ordered_images);
+	}
+
+	void process_update(color_relationship_t& rel, const blt::size_t index)
+	{
+		auto& selector = rel.colors[index];
+		{
+			sampler_single_value_t sampler{
+				blt::vec3{selector.current_color}.linear_rgb_to_oklab(),
+				samples * samples};
+
+			comparator_mean_sample_euclidean_t comparator;
+			selector.ordering   = make_ordering(sampler, comparator, {});
+		}
+		auto current_offset = selector.offset;
+		for (const auto& [i, e] : blt::enumerate(rel.colors))
+		{
+			if (i == index)
+				continue;
+			auto diff = e.offset - current_offset;
+			auto converted = e.current_color.linear_rgb_to_oklab().oklab_to_oklch();
+			converted[2] += diff;
+			e.current_color = converted.oklch_to_oklab().oklab_to_linear_rgb();
+
+			sampler_single_value_t sampler{
+				blt::vec3{e.current_color}.linear_rgb_to_oklab(),
+				samples * samples};
+
+			comparator_mean_sample_euclidean_t comparator;
+
+			e.ordering = make_ordering(sampler, comparator, {});
+		}
+	}
 
 	enum tab_type_t
 	{
@@ -687,7 +732,58 @@ struct tab_data_t
 				ImGui::EndChild();
 				break;
 			case COLOR_WHEEL:
-				if (ImGui::BeginChild("##ColorWheel", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY)) {}
+				if (ImGui::BeginChild("##ColorWheel", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY))
+				{
+					ImGui::Text("Relationship Selector");
+					if (ImGui::BeginListBox("##Relationship Selector"))
+					{
+						for (const auto& [n, item] : blt::enumerate(color_relationships))
+						{
+							const bool is_selected = selected == n;
+							if (ImGui::Selectable(item.name.c_str(), is_selected))
+								selected = n;
+							if (is_selected)
+								ImGui::SetItemDefaultFocus();
+						}
+
+						ImGui::SameLine();
+						ImGui::BeginGroup();
+						draw_config_tools();
+						ImGui::EndGroup();
+
+						auto& current_mode = color_relationships[selected];
+
+						for (const auto& [i, selector] : blt::enumerate(current_mode.colors))
+						{
+							float data[3];
+							data[0] = selector.current_color[0];
+							data[1] = selector.current_color[1];
+							data[2] = selector.current_color[2];
+							if (ImGui::ColorPicker3(("##SelectAna" + std::to_string(i)).c_str(),
+													data,
+													ImGuiColorEditFlags_InputRGB |
+													ImGuiColorEditFlags_PickerHueWheel))
+							{
+								selector.current_color[0] = data[0];
+								selector.current_color[1] = data[1];
+								selector.current_color[2] = data[2];
+								process_update(current_mode, selected);
+							}
+							if (i != current_mode.colors.size() - 1)
+								ImGui::SameLine();
+						}
+
+						for (auto& selector : current_mode.colors)
+						{
+							ImGui::BeginGroup();
+							draw_blocks(selector.ordering);
+							ImGui::EndGroup();
+							ImGui::SameLine();
+						}
+
+						ImGui::EndListBox();
+					}
+				}
 				ImGui::EndChild();
 				break;
 		}
@@ -721,7 +817,15 @@ struct tab_data_t
 	std::string        selected_block;
 	const gpu_image_t* selected_block_texture = nullptr;
 
+	size_t                            selected = 0;
 	std::vector<color_relationship_t> color_relationships{
+		color_relationship_t{
+			{
+				color_relationship_t::value_t{0},
+				color_relationship_t::value_t{180}
+			},
+			"Complementary"
+		},
 		color_relationship_t{
 			{
 				color_relationship_t::value_t{-60},
@@ -730,14 +834,16 @@ struct tab_data_t
 				color_relationship_t::value_t{30},
 				color_relationship_t::value_t{60}
 			},
-			"Analogous"},
+			"Analogous (30*)"},
 		color_relationship_t{
 			{
+				color_relationship_t::value_t{-40},
+				color_relationship_t::value_t{-20},
 				color_relationship_t::value_t{0},
-				color_relationship_t::value_t{180}
+				color_relationship_t::value_t{20},
+				color_relationship_t::value_t{40}
 			},
-			"Complementary"
-		},
+			"Analogous (20*)"},
 		color_relationship_t{
 			{
 				color_relationship_t::value_t{-150},
@@ -808,15 +914,15 @@ struct tab_data_t
 			"Pentadic"
 		},
 		color_relationship_t{
-				{
-					color_relationship_t::value_t{60},
-					color_relationship_t::value_t{120},
-					color_relationship_t::value_t{180},
-					color_relationship_t::value_t{240},
-					color_relationship_t::value_t{300}
-				},
+			{
+				color_relationship_t::value_t{60},
+				color_relationship_t::value_t{120},
+				color_relationship_t::value_t{180},
+				color_relationship_t::value_t{240},
+				color_relationship_t::value_t{300}
+			},
 			"Hexadic"
-			}
+		}
 	};
 
 	static float wrap_hue(float hue)
