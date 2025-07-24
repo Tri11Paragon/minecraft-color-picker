@@ -399,7 +399,7 @@ struct tab_data_t
 			comparator_mean_sample_euclidean_t comparator;
 			selector.ordering = make_ordering(sampler, comparator, {});
 		}
-		BLT_TRACE("Current Color: {}", selector.current_color.linear_rgb_to_oklab().oklab_to_oklch());
+		// BLT_TRACE("Current Color: {}", selector.current_color.linear_rgb_to_oklab().oklab_to_oklch());
 		auto current_offset = selector.offset;
 		for (const auto& [i, e] : blt::enumerate(rel.colors))
 		{
