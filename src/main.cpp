@@ -400,7 +400,7 @@ struct tab_data_t
 			selector.ordering = make_ordering(sampler, comparator, {});
 		}
 		// BLT_TRACE("Current Color: {}", selector.current_color.linear_rgb_to_oklab().oklab_to_oklch());
-		auto current_offset = selector.offset;
+		const auto current_offset = selector.offset;
 		for (const auto& [i, e] : blt::enumerate(rel.colors))
 		{
 			if (i == color_index)
