@@ -114,7 +114,7 @@ struct tab_data_t
 		struct value_t
 		{
 			float                   offset = 0;
-			blt::vec3               current_color;
+			blt::vec3               current_color {0, 0, 0};
 			std::vector<ordering_t> ordering;
 
 			explicit value_t(const float offset) : offset{offset} {}
@@ -306,7 +306,7 @@ struct tab_data_t
 			samples = 8;
 	}
 
-	void draw_blocks(std::vector<ordering_t>& ordered_images)
+	void draw_blocks(std::vector<ordering_t>& ordered_images, const std::string& table_id)
 	{
 		if (ordered_images.empty())
 			return;
@@ -327,88 +327,90 @@ struct tab_data_t
 			return true;
 		});
 		auto begin = iter.begin();
-		BLT_TRACE("{} Equals {} {}", ordered_images.size(), iter.begin() == iter.end(), begin != iter.end());
-		if (ImGui::BeginChild("ChildImageHolder"))
-		{
-			if (ImGui::BeginTable("ImageSelectionTable",
-								  amount_per_line,
-								  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
-			{
-				ImGui::TableNextColumn();
-				for (int i = 0; i < images; i++, ++begin)
-				{
-					while (begin != iter.end() && !(*begin).has_value())
-						++begin;
-					if (begin == iter.end())
-						continue;
-					auto  [index, tab_order]                                          = (*begin).value();
-					auto& [name, texture, average, distance, color_dist, kernel_dist] = tab_order;
 
-					ImGui::Image(texture->texture->getTextureID(),
-								 ImVec2{
-									 static_cast<float>(texture->image.width) * 4,
-									 static_cast<float>(texture->image.height) * 4
-								 });
-					ImGui::TableNextColumn();
-					if (ImGui::IsItemHovered())
-					{
-						ImGui::BeginTooltip();
-						ImGui::Text("%s", block_pretty_name(name).c_str());
-						ImGui::EndTooltip();
-					}
-					if (ImGui::BeginPopupContextItem(name.c_str()))
-					{
-						ImGui::Text("%s", block_pretty_name(name).c_str());
-						ImGui::Text("[%f | %f | %f]", distance, color_dist, kernel_dist);
-						if (ImGui::Button("Find Similar"))
-						{
-							tab_data_t data{next_tab_id++};
-							data.selected_block         = name;
-							data.selected_block_texture = texture;
-							data.configured             = BLOCK_SELECT;
-							data.tab_name               = "Block Picker##" + std::to_string(data.id);
-							tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
-						}
-						ImGui::Separator();
-						if (ImGui::Button("Remove"))
-							skipped_index.insert(index);
-						ImGui::Separator();
-						if (ImGui::Button("Close"))
-							ImGui::CloseCurrentPopup();
-						ImGui::EndPopup();
-					}
+		if (ImGui::BeginTable(table_id.c_str(),
+							  amount_per_line,
+							  ImGuiTableFlags_PreciseWidths | ImGuiTableFlags_SizingFixedSame))
+		{
+			ImGui::TableNextColumn();
+			for (int i = 0; i < images; i++, ++begin)
+			{
+				while (begin != iter.end() && !(*begin).has_value())
+					++begin;
+				if (begin == iter.end())
+					continue;
+				auto  [index, tab_order]                                          = (*begin).value();
+				auto& [name, texture, average, distance, color_dist, kernel_dist] = tab_order;
+
+				ImGui::Image(texture->texture->getTextureID(),
+							 ImVec2{
+								 static_cast<float>(texture->image.width) * 4,
+								 static_cast<float>(texture->image.height) * 4
+							 });
+				ImGui::TableNextColumn();
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::BeginTooltip();
+					ImGui::Text("%s", block_pretty_name(name).c_str());
+					ImGui::EndTooltip();
 				}
-				ImGui::EndTable();
+				if (ImGui::BeginPopupContextItem(name.c_str()))
+				{
+					ImGui::Text("%s", block_pretty_name(name).c_str());
+					ImGui::Text("[%f | %f | %f]", distance, color_dist, kernel_dist);
+					if (ImGui::Button("Find Similar"))
+					{
+						tab_data_t data{next_tab_id++};
+						data.selected_block         = name;
+						data.selected_block_texture = texture;
+						data.configured             = BLOCK_SELECT;
+						data.tab_name               = "Block Picker##" + std::to_string(data.id);
+						tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
+					}
+					ImGui::Separator();
+					if (ImGui::Button("Remove"))
+						skipped_index.insert(index);
+					ImGui::Separator();
+					if (ImGui::Button("Close"))
+						ImGui::CloseCurrentPopup();
+					ImGui::EndPopup();
+				}
 			}
+			ImGui::EndTable();
 		}
-		ImGui::EndChild();
 	}
 
 	void draw_order(std::vector<ordering_t>& ordered_images)
 	{
 		draw_config_tools();
-		draw_blocks(ordered_images);
+		if (ImGui::BeginChild("ChildImageHolder"))
+			draw_blocks(ordered_images, "ImageSelectionTable");
+		ImGui::EndChild();
 	}
 
-	void process_update(color_relationship_t& rel, const blt::size_t index)
+	void process_update(color_relationship_t& rel, const blt::size_t color_index)
 	{
-		auto& selector = rel.colors[index];
+		auto& selector = rel.colors[color_index];
 		{
 			sampler_single_value_t sampler{
 				blt::vec3{selector.current_color}.linear_rgb_to_oklab(),
 				samples * samples};
 
 			comparator_mean_sample_euclidean_t comparator;
-			selector.ordering   = make_ordering(sampler, comparator, {});
+			selector.ordering = make_ordering(sampler, comparator, {});
 		}
+		BLT_TRACE("Current Color: {}", selector.current_color.linear_rgb_to_oklab().oklab_to_oklch());
 		auto current_offset = selector.offset;
 		for (const auto& [i, e] : blt::enumerate(rel.colors))
 		{
-			if (i == index)
+			if (i == color_index)
 				continue;
-			auto diff = e.offset - current_offset;
-			auto converted = e.current_color.linear_rgb_to_oklab().oklab_to_oklch();
-			converted[2] += diff;
+			auto diff      = e.offset - current_offset;
+			// BLT_TRACE("With color {}", e.current_color);
+			BLT_TRACE("Diff: {} (From Offset {} and Val {})", diff, e.offset, current_offset);
+			auto converted = selector.current_color.linear_rgb_to_oklab().oklab_to_oklch();
+			converted[2] = converted[2] + diff;
+			BLT_TRACE("Converted: {}", converted);
 			e.current_color = converted.oklch_to_oklab().oklab_to_linear_rgb();
 
 			sampler_single_value_t sampler{
@@ -419,7 +421,9 @@ struct tab_data_t
 
 			e.ordering = make_ordering(sampler, comparator, {});
 		}
+		BLT_TRACE("------");
 	}
+
 
 	enum tab_type_t
 	{
@@ -498,6 +502,7 @@ struct tab_data_t
 					if (ImGui::Button("Color Relationship Helper", ImVec2(btnWidth, btnHeight)))
 					{
 						configured = COLOR_WHEEL;
+						process_update(color_relationships[selected], 0);
 						tab_name   = "Color Wheel##" + std::to_string(id);
 					}
 					if (ImGui::Button("Browser", ImVec2(btnWidth, btnHeight)))
@@ -741,50 +746,56 @@ struct tab_data_t
 						{
 							const bool is_selected = selected == n;
 							if (ImGui::Selectable(item.name.c_str(), is_selected))
+							{
 								selected = n;
+								process_update(color_relationships[selected], 0);
+							}
 							if (is_selected)
 								ImGui::SetItemDefaultFocus();
 						}
 
-						ImGui::SameLine();
-						ImGui::BeginGroup();
-						draw_config_tools();
-						ImGui::EndGroup();
+						ImGui::EndListBox();
+					}
+					ImGui::SameLine();
+					draw_config_tools();
+				}
+				ImGui::EndChild();
+				{
+					auto& current_mode = color_relationships[selected];
 
-						auto& current_mode = color_relationships[selected];
-
+					auto av2 = ImGui::GetContentRegionAvail();
+					if (ImGui::BeginChild("##ColorContainers",
+										  av2,
+										  false,
+										  ImGuiWindowFlags_HorizontalScrollbar))
+					{
 						for (const auto& [i, selector] : blt::enumerate(current_mode.colors))
 						{
 							float data[3];
 							data[0] = selector.current_color[0];
 							data[1] = selector.current_color[1];
 							data[2] = selector.current_color[2];
-							if (ImGui::ColorPicker3(("##SelectAna" + std::to_string(i)).c_str(),
-													data,
-													ImGuiColorEditFlags_InputRGB |
-													ImGuiColorEditFlags_PickerHueWheel))
+							if (ImGui::BeginChild(("SillyColors" + std::to_string(i)).c_str(), ImVec2(0,0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
 							{
-								selector.current_color[0] = data[0];
-								selector.current_color[1] = data[1];
-								selector.current_color[2] = data[2];
-								process_update(current_mode, selected);
+								if (ImGui::ColorPicker3(("##SelectAna" + std::to_string(i)).c_str(),
+														data,
+														ImGuiColorEditFlags_InputRGB |
+														ImGuiColorEditFlags_PickerHueWheel))
+								{
+									selector.current_color[0] = data[0];
+									selector.current_color[1] = data[1];
+									selector.current_color[2] = data[2];
+									process_update(current_mode, i);
+								}
+								draw_blocks(selector.ordering, "ImageSelectionTable" + std::to_string(selector.offset));
 							}
+							ImGui::EndChild();
 							if (i != current_mode.colors.size() - 1)
 								ImGui::SameLine();
 						}
-
-						for (auto& selector : current_mode.colors)
-						{
-							ImGui::BeginGroup();
-							draw_blocks(selector.ordering);
-							ImGui::EndGroup();
-							ImGui::SameLine();
-						}
-
-						ImGui::EndListBox();
 					}
+					ImGui::EndChild();
 				}
-				ImGui::EndChild();
 				break;
 		}
 	}
@@ -996,7 +1007,7 @@ void update(const blt::gfx::window_data& data)
 	ImGui::BeginGroup();
 	auto avail       = ImGui::GetContentRegionAvail();
 	bool should_open = false;
-	if (ImGui::BeginChild("Control Panel", ImVec2(300, avail.y), ImGuiChildFlags_Border))
+	if (ImGui::BeginChild("Control Panel", ImVec2(200, avail.y), ImGuiChildFlags_Border))
 	{
 		ImGui::Text("Control Panel");
 		ImGui::Separator();
