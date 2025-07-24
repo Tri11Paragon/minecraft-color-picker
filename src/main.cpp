@@ -407,10 +407,10 @@ struct tab_data_t
 				continue;
 			auto diff      = e.offset - current_offset;
 			// BLT_TRACE("With color {}", e.current_color);
-			BLT_TRACE("Diff: {} (From Offset {} and Val {})", diff, e.offset, current_offset);
+			// BLT_TRACE("Diff: {} (From Offset {} and Val {})", diff, e.offset, current_offset);
 			auto converted = selector.current_color.linear_rgb_to_oklab().oklab_to_oklch();
 			converted[2] = converted[2] + diff;
-			BLT_TRACE("Converted: {}", converted);
+			// BLT_TRACE("Converted: {}", converted);
 			e.current_color = converted.oklch_to_oklab().oklab_to_linear_rgb();
 
 			sampler_single_value_t sampler{
@@ -421,7 +421,7 @@ struct tab_data_t
 
 			e.ordering = make_ordering(sampler, comparator, {});
 		}
-		BLT_TRACE("------");
+		// BLT_TRACE("------");
 	}
 
 
@@ -848,13 +848,13 @@ struct tab_data_t
 			"Analogous (30*)"},
 		color_relationship_t{
 			{
+				color_relationship_t::value_t{-80},
 				color_relationship_t::value_t{-40},
-				color_relationship_t::value_t{-20},
 				color_relationship_t::value_t{0},
-				color_relationship_t::value_t{20},
-				color_relationship_t::value_t{40}
+				color_relationship_t::value_t{40},
+				color_relationship_t::value_t{80}
 			},
-			"Analogous (20*)"},
+			"Analogous (40*)"},
 		color_relationship_t{
 			{
 				color_relationship_t::value_t{-150},
@@ -926,6 +926,7 @@ struct tab_data_t
 		},
 		color_relationship_t{
 			{
+				color_relationship_t::value_t{0},
 				color_relationship_t::value_t{60},
 				color_relationship_t::value_t{120},
 				color_relationship_t::value_t{180},
