@@ -275,9 +275,6 @@ struct tab_data_t
 		ImGui::SameLine();
 		HelpMarker(
 			"Prefix with # to use tags, separate by commas for multiple tags or blocks. Eg: #minecraft:block/leaves,minecraft:block/grass_block");
-		ImGui::Checkbox("Blacklist?", &is_blacklist);
-		ImGui::SameLine();
-		HelpMarker("If not enabled then list acts as a whitelist");
 		pending_change |= ImGui::Checkbox("Extra Items", &include_non_solid);
 		pending_change |= ImGui::SliderFloat("Average Color Weight", &weights[0], 0, 1);
 		pending_change |= ImGui::Checkbox("Enable Noise In Selection", &enable_noise);
