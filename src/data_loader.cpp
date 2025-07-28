@@ -210,7 +210,35 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 	}
 }
 
-sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& image)
+sampler_srgb_op_t::sampler_srgb_op_t(const image_t& image, blt::i32 samples)
+{
+	const auto x_step = image.width / samples;
+	const auto y_step = image.height / samples;
+	for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
+	{
+		for (blt::i32 x_pos = 0; x_pos < samples; x_pos++)
+		{
+			float     alpha = 0;
+			blt::vec3 average{};
+			for (blt::i32 y = y_step * y_pos; y < std::min(image.height, y_step * (y_pos + 1)); y++)
+			{
+				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
+				{
+					auto value = access_image(image, x, y);
+
+					const auto a = value.a();
+					average += blt::make_vec3(value).linear_to_srgb() * a;
+					alpha += a;
+				}
+			}
+			if (alpha != 0)
+				average = average / alpha;
+			averages.push_back(average);
+		}
+	}
+}
+
+sampler_color_difference_oklab_t::sampler_color_difference_oklab_t(const image_t& image)
 {
 	const sampler_oklab_op_t oklab{image, 1};
 	auto                     average_color = oklab.get_values()[0];
@@ -233,7 +261,7 @@ sampler_color_difference_op_t::sampler_color_difference_op_t(const image_t& imag
 	color_differences.push_back(color_difference);
 }
 
-sampler_kernel_filter_op_t::sampler_kernel_filter_op_t(const image_t& image)
+sampler_kernel_filter_oklab_t::sampler_kernel_filter_oklab_t(const image_t& image)
 {
 	struct kernel
 	{
@@ -271,6 +299,150 @@ sampler_kernel_filter_op_t::sampler_kernel_filter_op_t(const image_t& image)
 	const sampler_oklab_op_t oklab{image, 1};
 	const auto               average_color = oklab.get_values()[0];
 	blt::vec3                total;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			total += diff * diff;
+		}
+	}
+	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+}
+
+sampler_color_difference_rgb_t::sampler_color_difference_rgb_t(const image_t& image)
+{
+	const sampler_linear_rgb_op_t linear_rgb{image, 1};
+	auto                          average_color = linear_rgb.get_values()[0];
+	float                         alpha         = 0;
+	blt::vec3                     color_difference;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			auto value = access_image(image, x, y);
+
+			const auto a    = value.a();
+			auto       diff = average_color - blt::make_vec3(value);
+			color_difference += diff * diff * a;
+			alpha += a;
+		}
+	}
+	if (alpha != 0)
+		color_difference = color_difference.sqrt() / alpha;
+	color_differences.push_back(color_difference);
+}
+
+sampler_kernel_filter_rgb_t::sampler_kernel_filter_rgb_t(const image_t& image)
+{
+	struct kernel
+	{
+		explicit kernel(const blt::i32 size = 2): size(size) {}
+
+		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
+		{
+			blt::vec3 avg;
+			float     alpha = 0.0f;
+			for (blt::i32 i = -size; i <= size; i++)
+			{
+				for (blt::i32 j = -size; j <= size; j++)
+				{
+					auto px = x + i;
+					auto py = y + i;
+					if (px < 0)
+						px = image.width + px;
+					if (px >= image.width)
+						px = image.width - px;
+					if (py < 0)
+						py = image.height + py;
+					if (py >= image.height)
+						py = image.height - py;
+					auto value = access_image(image, px, py);
+					avg += blt::make_vec3(value) * value.a();
+					alpha += value.a();
+				}
+			}
+			return avg / alpha;
+		}
+
+		blt::i32 size;
+	};
+
+	const sampler_linear_rgb_op_t lin_rgb{image, 1};
+	const auto                    average_color = lin_rgb.get_values()[0];
+	blt::vec3                     total;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			total += diff * diff;
+		}
+	}
+	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+}
+
+sampler_color_difference_srgb_t::sampler_color_difference_srgb_t(const image_t& image)
+{
+	const sampler_srgb_op_t srgb{image, 1};
+	auto                    average_color = srgb.get_values()[0];
+	float                   alpha         = 0;
+	blt::vec3               color_difference;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			auto value = access_image(image, x, y);
+
+			const auto a    = value.a();
+			auto       diff = average_color - blt::make_vec3(value).linear_to_srgb();
+			color_difference += diff * diff * a;
+			alpha += a;
+		}
+	}
+	if (alpha != 0)
+		color_difference = color_difference.sqrt() / alpha;
+	color_differences.push_back(color_difference);
+}
+
+sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
+{
+	struct kernel
+	{
+		explicit kernel(const blt::i32 size = 2): size(size) {}
+
+		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
+		{
+			blt::vec3 avg;
+			float     alpha = 0.0f;
+			for (blt::i32 i = -size; i <= size; i++)
+			{
+				for (blt::i32 j = -size; j <= size; j++)
+				{
+					auto px = x + i;
+					auto py = y + i;
+					if (px < 0)
+						px = image.width + px;
+					if (px >= image.width)
+						px = image.width - px;
+					if (py < 0)
+						py = image.height + py;
+					if (py >= image.height)
+						py = image.height - py;
+					auto value = access_image(image, px, py);
+					avg += blt::make_vec3(value).linear_to_srgb() * value.a();
+					alpha += value.a();
+				}
+			}
+			return avg / alpha;
+		}
+
+		blt::i32 size;
+	};
+
+	const sampler_srgb_op_t srgb{image, 1};
+	const auto              average_color = srgb.get_values()[0];
+	blt::vec3               total;
 	for (blt::i32 y = 0; y < image.height; y++)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
