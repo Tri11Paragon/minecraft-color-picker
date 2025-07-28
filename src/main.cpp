@@ -29,6 +29,7 @@
 #include <blt/math/log_util.h>
 #include <render.h>
 #include <themes.h>
+#include <blt/fs/stream_wrappers.h>
 
 blt::gfx::matrix_state_manager   global_matrices;
 blt::gfx::resource_manager       resources;
@@ -853,6 +854,15 @@ struct tab_data_t
 				ImGui::EndChild();
 				break;
 		}
+	}
+
+	void save(blt::fs::writer_t& writer){
+		blt::fs::writer_wrapper_t wrapper{writer};
+		wrapper.write()
+	}
+
+	void load(blt::fs::reader_t& reader) {
+
 	}
 
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
