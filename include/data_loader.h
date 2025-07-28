@@ -79,9 +79,21 @@ struct sampler_linear_rgb_op_t final : sampler_interface_t
 	std::vector<blt::vec3> averages;
 };
 
-struct sampler_color_difference_op_t final : sampler_interface_t
+struct sampler_srgb_op_t final : sampler_interface_t
 {
-	explicit sampler_color_difference_op_t(const image_t& image);
+	explicit sampler_srgb_op_t(const image_t& image, blt::i32 samples = 1);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return averages;
+	}
+
+	std::vector<blt::vec3> averages;
+};
+
+struct sampler_color_difference_oklab_t final : sampler_interface_t
+{
+	explicit sampler_color_difference_oklab_t(const image_t& image);
 
 	[[nodiscard]] std::vector<blt::vec3> get_values() const override
 	{
@@ -91,9 +103,57 @@ struct sampler_color_difference_op_t final : sampler_interface_t
 	std::vector<blt::vec3> color_differences;
 };
 
-struct sampler_kernel_filter_op_t final : sampler_interface_t
+struct sampler_kernel_filter_oklab_t final : sampler_interface_t
 {
-	explicit sampler_kernel_filter_op_t(const image_t& image);
+	explicit sampler_kernel_filter_oklab_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return kernel_averages;
+	}
+
+	std::vector<blt::vec3> kernel_averages;
+};
+
+struct sampler_color_difference_rgb_t final : sampler_interface_t
+{
+	explicit sampler_color_difference_rgb_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return color_differences;
+	}
+
+	std::vector<blt::vec3> color_differences;
+};
+
+struct sampler_kernel_filter_rgb_t final : sampler_interface_t
+{
+	explicit sampler_kernel_filter_rgb_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return kernel_averages;
+	}
+
+	std::vector<blt::vec3> kernel_averages;
+};
+
+struct sampler_color_difference_srgb_t final : sampler_interface_t
+{
+	explicit sampler_color_difference_srgb_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return color_differences;
+	}
+
+	std::vector<blt::vec3> color_differences;
+};
+
+struct sampler_kernel_filter_srgb_t final : sampler_interface_t
+{
+	explicit sampler_kernel_filter_srgb_t(const image_t& image);
 
 	[[nodiscard]] std::vector<blt::vec3> get_values() const override
 	{
