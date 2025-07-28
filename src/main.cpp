@@ -520,7 +520,7 @@ struct tab_data_t
 				if (ImGui::ColorPicker3("##SelectBlocks",
 										color_picker_data,
 										ImGuiColorEditFlags_InputRGB |
-										ImGuiColorEditFlags_PickerHueWheel)) { skipped_index.clear(); }
+										ImGuiColorEditFlags_PickerHueBar)) { skipped_index.clear(); }
 				ImGui::EndChild();
 				sampler_single_value_t sampler{blt::vec3{color_picker_data}.linear_rgb_to_oklab(), samples * samples};
 
@@ -781,7 +781,7 @@ struct tab_data_t
 									if (ImGui::ColorPicker3(("##SelectAna" + std::to_string(i)).c_str(),
 															data,
 															ImGuiColorEditFlags_InputRGB |
-															ImGuiColorEditFlags_PickerHueWheel))
+															ImGuiColorEditFlags_PickerHueBar))
 									{
 										selector.current_color[0] = data[0];
 										selector.current_color[1] = data[1];
