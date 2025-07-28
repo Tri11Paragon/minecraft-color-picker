@@ -29,7 +29,6 @@
 #include <blt/math/log_util.h>
 #include <render.h>
 #include <themes.h>
-#include <oneapi/tbb/detail/_utils.h>
 
 blt::gfx::matrix_state_manager   global_matrices;
 blt::gfx::resource_manager       resources;

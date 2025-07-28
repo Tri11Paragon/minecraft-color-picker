@@ -4,6 +4,8 @@
 }), customPkgs ? (import /home/brett/my-nixpkgs {
 	config.allowUnfree = true;
     config.segger-jlink.acceptLicense = true;
+}), unstable ? (import (fetchTarball "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz") {
+	config.allowUnfree = true;
 }), ... }:
 pkgs.mkShell
 {
@@ -11,7 +13,7 @@ pkgs.mkShell
 		cmake 
 		gcc
 		clang
-		emscripten
+		unstable.emscripten
 		ninja
 		customPkgs.jetbrains.clion
 		#clion = import ~/my-nixpkgs/pkgs/applications/editors/jetbrains {};
