@@ -28,8 +28,10 @@
 #include <data_loader.h>
 #include <blt/math/log_util.h>
 #include <render.h>
+#include <stack>
 #include <themes.h>
 #include <blt/fs/stream_wrappers.h>
+#include <blt/std/ranges.h>
 
 blt::gfx::matrix_state_manager   global_matrices;
 blt::gfx::resource_manager       resources;
@@ -69,7 +71,10 @@ struct min_max_t
 			max = v;
 	}
 
-	[[nodiscard]] float scale() const { return std::abs(max - min); }
+	[[nodiscard]] float scale() const
+	{
+		return std::abs(max - min);
+	}
 
 	// [[nodiscard]] float normalize(const float f) const { return f; }
 	[[nodiscard]] float normalize(const float f) const
@@ -85,8 +90,23 @@ struct min_max_t
 };
 
 
+enum class comparator_mode_t
+{
+	OKLAB, HSV, RGB
+};
+
+
 struct tab_data_t
 {
+	enum class color_mode_t
+	{
+		COLOR_OKLAB,
+		COLOR_RGB,
+		COLOR_SRGB,
+		COLOR_HSV
+	};
+
+
 	struct ordering_t
 	{
 		std::string        name;
@@ -106,7 +126,8 @@ struct tab_data_t
 													 average{average},
 													 dist_avg{dist_avg},
 													 dist_color{dist_color},
-													 dist_kernel{dist_kernel} {}
+													 dist_kernel{dist_kernel}
+		{}
 	};
 
 
@@ -118,7 +139,10 @@ struct tab_data_t
 			blt::vec3               current_color{0, 0, 0};
 			std::vector<ordering_t> ordering;
 
-			explicit value_t(const float offset) : offset{offset} {}
+			explicit value_t(const float offset) : offset{offset}
+			{}
+
+			value_t() = default;
 		};
 
 
@@ -126,7 +150,8 @@ struct tab_data_t
 		std::string          name;
 
 		color_relationship_t(const std::vector<value_t>& colors, std::string name) : colors{colors},
-			name{std::move(name)} {}
+			name{std::move(name)}
+		{}
 	};
 
 
@@ -269,54 +294,89 @@ struct tab_data_t
 
 	void draw_config_tools()
 	{
-		ImGui::InputInt("Images to Display", &images);
+		pending_change |= ImGui::InputInt("Images to Display", &images);
 		pending_change |= ImGui::InputInt("Samples (per axis)", &samples);
 		if (ImGui::InputText("Access Control String", &control_list))
+		{
 			list = get_blocks_control_list();
+			pending_change |= true;
+		}
 		ImGui::SameLine();
 		HelpMarker(
 			"Prefix with # to use tags, separate by commas for multiple tags or blocks. Eg: #minecraft:block/leaves,minecraft:block/grass_block");
-		static constexpr const char* const color_modes[] = {"OkLab", "Linear RGB", "sRGB"};
-		if (ImGui::Combo("Color Mode", &selected_color_mode, color_modes, IM_ARRAYSIZE(color_modes)))
+		static constexpr const char* const color_modes[] = {"OkLab", "Linear RGB", "sRGB", "HSV"};
+		if (ImGui::Combo("Color Mode",
+						 reinterpret_cast<int*>(&selected_color_mode),
+						 color_modes,
+						 IM_ARRAYSIZE(color_modes)))
 		{
 			switch (selected_color_mode)
 			{
-				case 0:
-					switch_to_oklab();
-					break;
-				case 1:
-					switch_to_linrgb();
-					break;
-				case 2:
-					switch_to_srgb();
-					break;
+				case color_mode_t::COLOR_OKLAB:
 				default:
-					selected_color_mode = 0;
+					switch_to_oklab();
+					update_comparator(comparator_mode_t::OKLAB);
+					break;
+				case color_mode_t::COLOR_RGB:
 					switch_to_linrgb();
+					update_comparator(comparator_mode_t::RGB);
+					break;
+				case color_mode_t::COLOR_SRGB:
+					switch_to_srgb();
+					update_comparator(comparator_mode_t::RGB);
+					break;
+				case color_mode_t::COLOR_HSV:
+					switch_to_hsv();
+					update_comparator(comparator_mode_t::HSV);
 					break;
 			}
+			pending_change |= true;
 		}
 		pending_change |= ImGui::Checkbox("Extra Items", &include_non_solid);
-		pending_change |= ImGui::SliderFloat("Average Color Weight", &weights[0], 0, 1);
-		pending_change |= ImGui::Checkbox("Enable Noise In Selection", &enable_noise);
-		if (enable_noise)
+		switch (selected_color_mode)
 		{
-			pending_change |= ImGui::SliderFloat("Color Difference Weight", &weights[1], 0, 1);
-			pending_change |= ImGui::SliderFloat("Kernel Difference Weight", &weights[2], 0, 1);
+			case color_mode_t::COLOR_RGB:
+			case color_mode_t::COLOR_SRGB:
+				break;
+			case color_mode_t::COLOR_HSV:
+				ImGui::Text(
+					"Changing These values allows you to control how much they contribute to the color's ranking");
+				pending_change |= ImGui::SliderFloat("Factor Hue", &comparison_interface->factor0, 0, 1);
+				pending_change |= ImGui::SliderFloat("Factor Saturation", &comparison_interface->factor1, 0, 1);
+				pending_change |= ImGui::SliderFloat("Factor Value", &comparison_interface->factor2, 0, 1);
+				break;
+			case color_mode_t::COLOR_OKLAB:
+			default:
+				ImGui::Text(
+					"Changing These values allows you to control how much they contribute to the color's ranking");
+				pending_change |= ImGui::SliderFloat("Factor Lightness", &comparison_interface->factor0, 0, 1);
+				pending_change |= ImGui::SliderFloat("Factor Chroma", &comparison_interface->factor1, 0, 1);
+				pending_change |= ImGui::SliderFloat("Factor Hue", &comparison_interface->factor2, 0, 1);
+				break;
 		}
-		ImGui::Checkbox("Enable Noise Cutoffs", &enable_cutoffs);
-		if (enable_cutoffs)
+		if (configured == BLOCK_SELECT)
 		{
-			ImGui::SliderFloat("Color Difference Cutoff",
-							   &cutoff_color_difference,
-							   color_difference_vals.min,
-							   color_difference_vals.max,
-							   "%.9f");
-			ImGui::SliderFloat("Kernel Difference Cutoff",
-							   &cutoff_kernel_difference,
-							   kernel_difference_vals.min,
-							   kernel_difference_vals.max,
-							   "%.9f");
+			pending_change |= ImGui::SliderFloat("Average Color Weight", &weights[0], 0, 1);
+			pending_change |= ImGui::Checkbox("Enable Noise In Selection", &enable_noise);
+			if (enable_noise)
+			{
+				pending_change |= ImGui::SliderFloat("Color Difference Weight", &weights[1], 0, 1);
+				pending_change |= ImGui::SliderFloat("Kernel Difference Weight", &weights[2], 0, 1);
+			}
+			ImGui::Checkbox("Enable Noise Cutoffs", &enable_cutoffs);
+			if (enable_cutoffs)
+			{
+				ImGui::SliderFloat("Color Difference Cutoff",
+								   &cutoff_color_difference,
+								   color_difference_vals.min,
+								   color_difference_vals.max,
+								   "%.9f");
+				ImGui::SliderFloat("Kernel Difference Cutoff",
+								   &cutoff_kernel_difference,
+								   kernel_difference_vals.min,
+								   kernel_difference_vals.max,
+								   "%.9f");
+			}
 		}
 		if (samples < 1)
 			samples = 1;
@@ -408,15 +468,16 @@ struct tab_data_t
 
 	void process_update(color_relationship_t& rel, const blt::size_t color_index)
 	{
+		if (rel.colors.empty())
+			return;
 		auto& selector = rel.colors[color_index];
 		{
 			auto sampler = color_source_t(blt::vec3{selector.current_color},
 										  samples);
 
-			comparator_mean_sample_euclidean_t comparator;
-			selector.ordering = make_ordering(*sampler, comparator, {});
+			selector.ordering = make_ordering(*sampler, *comparison_interface, {});
 		}
-		// BLT_TRACE("Current Color: {}", selector.current_color.linear_rgb_to_oklab().oklab_to_oklch());
+
 		const auto current_offset = selector.offset;
 		for (const auto& [i, e] : blt::enumerate(rel.colors))
 		{
@@ -430,15 +491,15 @@ struct tab_data_t
 				case 0:
 				default:
 				{
-					auto converted = selector.current_color.linear_rgb_to_oklab().oklab_to_oklch();
-					converted[2]   = converted[2] + diff;
+					auto converted  = selector.current_color.linear_rgb_to_oklab().oklab_to_oklch();
+					converted[2]    = converted[2] + diff;
 					e.current_color = converted.oklch_to_oklab().oklab_to_linear_rgb();
 					break;
 				}
 				case 1:
 				{
-					auto converted = selector.current_color.linear_rgb_to_hsv();
-					converted[0]   = converted[0] + diff;
+					auto converted  = selector.current_color.linear_rgb_to_hsv();
+					converted[0]    = converted[0] + diff;
 					e.current_color = converted.hsv_to_linear_rgb();
 					break;
 				}
@@ -449,9 +510,7 @@ struct tab_data_t
 				blt::vec3{e.current_color},
 				samples);
 
-			comparator_mean_sample_euclidean_t comparator;
-
-			e.ordering = make_ordering(*sampler, comparator, {});
+			e.ordering = make_ordering(*sampler, *comparison_interface, {});
 		}
 		// BLT_TRACE("------");
 	}
@@ -465,7 +524,10 @@ struct tab_data_t
 
 	explicit tab_data_t(const size_t id):
 		tab_name("Unconfigured##" + std::to_string(id)),
-		id(id) { list = get_blocks_control_list(); }
+		id(id)
+	{
+		list = get_blocks_control_list();
+	}
 
 	void render()
 	{
@@ -550,15 +612,16 @@ struct tab_data_t
 			{
 				ImGui::BeginChild("##Selector", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
 				if (ImGui::ColorPicker3("##SelectBlocks",
-										color_picker_data,
+										color_picker_data.data(),
 										ImGuiColorEditFlags_InputRGB |
-										ImGuiColorEditFlags_PickerHueBar)) { skipped_index.clear(); }
+										ImGuiColorEditFlags_PickerHueBar))
+				{
+					skipped_index.clear();
+				}
 				ImGui::EndChild();
 				auto sampler = color_source_t(blt::vec3{color_picker_data}, samples);
 
-				comparator_mean_sample_euclidean_t comparator;
-
-				ordered_images = make_ordering(*sampler, comparator, {});
+				ordered_images = make_ordering(*sampler, *comparison_interface, {});
 
 				// ImGui::BeginChild("##Selector", ImVec2(0, 0));
 				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
@@ -748,13 +811,12 @@ struct tab_data_t
 
 						if (pending_change)
 						{
-							const auto image_sampler = color_sampler_t(selected_block_texture->image, samples);
-							const auto color_sampler = color_difference_sampler_t(selected_block_texture->image);
+							const auto image_sampler  = color_sampler_t(selected_block_texture->image, samples);
+							const auto color_sampler  = color_difference_sampler_t(selected_block_texture->image);
 							const auto kernel_sampler = color_kernel_sampler_t(selected_block_texture->image);
-							comparator_mean_sample_euclidean_t comparator;
 
 							ordered_images = make_ordering(*image_sampler,
-														   comparator,
+														   *comparison_interface,
 														   std::pair<sampler_interface_t&, sampler_interface_t&>{
 															   *color_sampler,
 															   *kernel_sampler});
@@ -795,9 +857,9 @@ struct tab_data_t
 						}
 						static constexpr const char* const conversion_modes[] = {"OkLab", "HSV"};
 						if (ImGui::Combo("Conversion Mode",
-									 &selected_conversion_mode,
-									 conversion_modes,
-									 IM_ARRAYSIZE(conversion_modes)))
+										 &selected_conversion_mode,
+										 conversion_modes,
+										 IM_ARRAYSIZE(conversion_modes)))
 							pending_change = true;
 						ImGui::EndGroup();
 						ImGui::SameLine();
@@ -856,13 +918,81 @@ struct tab_data_t
 		}
 	}
 
-	void save(blt::fs::writer_t& writer){
-		blt::fs::writer_wrapper_t wrapper{writer};
-		wrapper.write()
+	void save(blt::fs::writer_t& writer) const
+	{
+		blt::fs::writer_serializer_t serial{writer};
+		serial.write(tab_name);
+		serial.write(control_list);
+		serial.write(include_non_solid);
+		serial.write(enable_noise);
+		serial.write(enable_cutoffs);
+		serial.write(cutoff_color_difference);
+		serial.write(cutoff_kernel_difference);
+		serial.write(configured);
+		serial.write(images);
+		serial.write(samples);
+		serial.write(selected_color_mode);
+		serial.write(selected_conversion_mode);
+		serial.write(color_picker_data);
+		serial.write(id);
+		serial.write(weights);
+		serial.write(selected_block);
+		serial.write(selected);
+		serial.write(color_relationships.back().colors);
+		// wrapper.write()
 	}
 
-	void load(blt::fs::reader_t& reader) {
+	void load(blt::fs::reader_t& reader)
+	{
+		blt::fs::reader_serializer_t serial{reader};
+		serial.read(tab_name);
+		serial.read(control_list);
+		serial.read(include_non_solid);
+		serial.read(enable_noise);
+		serial.read(enable_cutoffs);
+		serial.read(cutoff_color_difference);
+		serial.read(cutoff_kernel_difference);
+		serial.read(configured);
+		serial.read(images);
+		serial.read(samples);
+		serial.read(selected_color_mode);
+		serial.read(selected_conversion_mode);
+		serial.read(color_picker_data);
+		serial.read(id);
+		serial.read(weights);
+		serial.read(selected_block);
+		serial.read(selected);
+		serial.read(color_relationships.back().colors);
 
+		switch (configured)
+		{
+			case COLOR_WHEEL:
+				process_update(color_relationships[selected], 0);
+				break;
+			default:
+				break;
+		}
+
+		pending_change = true;
+	}
+
+	void update_comparator(const std::optional<comparator_mode_t> new_val = {})
+	{
+		if (new_val)
+			selected_comparator = *new_val;
+		switch (selected_comparator)
+		{
+			case comparator_mode_t::HSV:
+				comparison_interface = std::make_unique<comparator_mean_sample_hsv_euclidean_t>();
+				break;
+			case comparator_mode_t::OKLAB:
+				comparison_interface = std::make_unique<comparator_mean_sample_euclidean_t>();
+				break;
+			case comparator_mode_t::RGB:
+			default:
+				comparison_interface = std::make_unique<comparator_mean_sample_oklab_euclidean_t>();
+				break;
+		}
 	}
 
 	std::optional<std::vector<std::tuple<std::string, std::string>>> asset_rows;
@@ -880,17 +1010,21 @@ struct tab_data_t
 	tab_type_t                  configured               = UNCONFIGURED;
 	int                         images                   = 16;
 	int                         samples                  = 1;
-	int                         selected_color_mode      = 0;
+	color_mode_t                selected_color_mode      = color_mode_t::COLOR_OKLAB;
 	int                         selected_conversion_mode = 0;
 	min_max_t                   avg_difference_vals;
 	min_max_t                   color_difference_vals;
 	min_max_t                   kernel_difference_vals;
-	float                       color_picker_data[3]{};
+	std::array<float, 3>        color_picker_data{};
 	blt::hashset_t<int>         skipped_index;
 	blt::hashset_t<std::string> list;
 	size_t                      id;
 	std::array<float, 3>        weights{0.5, 0.15, 0.40};
 	std::vector<ordering_t>     ordered_images;
+
+	std::unique_ptr<comparator_interface_t> comparison_interface =
+		std::make_unique<comparator_mean_sample_oklab_euclidean_t>();
+	comparator_mode_t selected_comparator = comparator_mode_t::OKLAB;
 
 	std::string        selected_block;
 	const gpu_image_t* selected_block_texture = nullptr;
@@ -1001,6 +1135,11 @@ struct tab_data_t
 				color_relationship_t::value_t{300}
 			},
 			"Hexadic"
+		},
+		color_relationship_t{
+			{
+			},
+			"Custom"
 		}
 	};
 
@@ -1013,7 +1152,6 @@ struct tab_data_t
 		return hue;
 	}
 
-	// using color_sampler_t            = sampler_oklab_op_t;
 	std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)>   color_sampler_t = make_sampler_oklab();
 	std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> color_source_t = make_source_oklab();
 	std::function<std::unique_ptr<sampler_interface_t>(const image_t&)>        color_difference_sampler_t =
@@ -1047,6 +1185,15 @@ struct tab_data_t
 		pending_change             = true;
 	}
 
+	void switch_to_hsv()
+	{
+		color_sampler_t            = make_sampler_hsv();
+		color_source_t             = make_source_hsv();
+		color_difference_sampler_t = make_difference_hsv();
+		color_kernel_sampler_t     = make_kernel_hsv();
+		pending_change             = true;
+	}
+
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_oklab()
 	{
 		return [](const blt::vec3& image, const int samples) {
@@ -1068,6 +1215,13 @@ struct tab_data_t
 		};
 	}
 
+	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_hsv()
+	{
+		return [](const blt::vec3& image, const int samples) {
+			return std::make_unique<sampler_single_value_t>(image.linear_rgb_to_hsv(), samples * samples);
+		};
+	}
+
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> make_sampler_oklab()
 	{
 		return [](
@@ -1086,37 +1240,72 @@ struct tab_data_t
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> make_sampler_srgb()
 	{
-		return [](const image_t& image, int samples) { return std::make_unique<sampler_srgb_op_t>(image, samples); };
+		return [](const image_t& image, int samples) {
+			return std::make_unique<sampler_srgb_op_t>(image, samples);
+		};
+	}
+
+	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> make_sampler_hsv()
+	{
+		return [](const image_t& image, int samples) {
+			return std::make_unique<sampler_hsv_op_t>(image, samples);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_oklab()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_oklab_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_oklab_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_linrgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_rgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_rgb_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_srgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_srgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_srgb_t>(image);
+		};
+	}
+
+	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_hsv()
+	{
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_hsv_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_oklab()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_oklab_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_oklab_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_linrgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_rgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_rgb_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_srgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_srgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_srgb_t>(image);
+		};
+	}
+
+	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_hsv()
+	{
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_hsv_t>(image);
+		};
 	}
 };
 
@@ -1140,7 +1329,10 @@ void init(const blt::gfx::window_data&)
 		}
 
 		db = std::move(loader.load_textures());
-	} else { db = load_database("1.21.5.assets"); }
+	} else
+	{
+		db = load_database("1.21.5.assets");
+	}
 	static data_loader_t loader{std::move(*db)};
 	assets        = loader.load();
 	gpu_resources = gpu_asset_manager{assets};
@@ -1208,7 +1400,10 @@ void update(const blt::gfx::window_data& data)
 			ImGui::EndListBox();
 		}
 		ImGui::Separator();
-		if (ImGui::Button("Silly")) { should_open = true; }
+		if (ImGui::Button("Silly"))
+		{
+			should_open = true;
+		}
 	}
 	ImGui::EndChild();
 	ImGui::EndGroup();
@@ -1239,8 +1434,9 @@ void update(const blt::gfx::window_data& data)
 			}
 
 			// stupid hack
-			for (const auto& ptr : tabs_to_add)
-				window_tabs.insert(window_tabs.begin() + static_cast<blt::ptrdiff_t>(ptr.second), *ptr.first);
+			for (auto& ptr : tabs_to_add)
+				window_tabs.insert(window_tabs.begin() + static_cast<blt::ptrdiff_t>(ptr.second),
+								   std::move(*ptr.first));
 			tabs_to_add.clear();
 
 			ImGui::EndTabBar();
@@ -1333,6 +1529,23 @@ void destroy(const blt::gfx::window_data&)
 
 int main()
 {
+	// std::vector<float>  hello;
+	// blt::hashset_t<int> there;
+	// std::stack<float>   stack;
+	//
+	// blt::meta::insert_helper_t{hello, 0.53f};
+	// blt::meta::insert_helper_t{hello, 0.33f};
+	// blt::meta::insert_helper_t{hello, 342109.33f};
+	// blt::meta::insert_helper_t{there, 120};
+	// blt::meta::insert_helper_t{stack, 120.0f};
+	//
+	// for (const auto v : hello)
+	// 	BLT_TRACE("Hello {}", v);
+	// for (const auto v : there)
+	// 	BLT_TRACE("There {}", v);
+	// for (float v = stack.top(); !stack.empty(); v = stack.top(), stack.pop())
+	// 	BLT_TRACE("Stack {}", v);
+
 	blt::gfx::init(blt::gfx::window_data{"Minecraft Color Picker", init, update, destroy}.setSyncInterval(1));
 
 	return 0;

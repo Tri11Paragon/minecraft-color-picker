@@ -107,7 +107,10 @@ assets_t data_loader_t::load()
 	{
 		for (const auto& [tag, block_set] : tag_map)
 		{
-			for (const auto& block : block_set) { tag_list.emplace_back(namespace_str, tag, block); }
+			for (const auto& block : block_set)
+			{
+				tag_list.emplace_back(namespace_str, tag, block);
+			}
 		}
 	}
 
@@ -238,6 +241,34 @@ sampler_srgb_op_t::sampler_srgb_op_t(const image_t& image, blt::i32 samples)
 	}
 }
 
+sampler_hsv_op_t::sampler_hsv_op_t(const image_t& image, const blt::i32 samples)
+{
+	const auto x_step = image.width / samples;
+	const auto y_step = image.height / samples;
+	for (blt::i32 y_pos = 0; y_pos < samples; y_pos++)
+	{
+		for (blt::i32 x_pos = 0; x_pos < samples; x_pos++)
+		{
+			float     alpha = 0;
+			blt::vec3 average{};
+			for (blt::i32 y = y_step * y_pos; y < std::min(image.height, y_step * (y_pos + 1)); y++)
+			{
+				for (blt::i32 x = x_step * x_pos; x < std::min(image.width, x_step * (x_pos + 1)); x++)
+				{
+					auto value = access_image(image, x, y);
+
+					const auto a = value.a();
+					average += blt::make_vec3(value).linear_rgb_to_hsv() * a;
+					alpha += a;
+				}
+			}
+			if (alpha != 0)
+				average = average / alpha;
+			averages.push_back(average);
+		}
+	}
+}
+
 sampler_color_difference_oklab_t::sampler_color_difference_oklab_t(const image_t& image)
 {
 	const sampler_oklab_op_t oklab{image, 1};
@@ -265,7 +296,8 @@ sampler_kernel_filter_oklab_t::sampler_kernel_filter_oklab_t(const image_t& imag
 {
 	struct kernel
 	{
-		explicit kernel(const blt::i32 size = 2): size(size) {}
+		explicit kernel(const blt::i32 size = 2): size(size)
+		{}
 
 		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
 		{
@@ -337,7 +369,8 @@ sampler_kernel_filter_rgb_t::sampler_kernel_filter_rgb_t(const image_t& image)
 {
 	struct kernel
 	{
-		explicit kernel(const blt::i32 size = 2): size(size) {}
+		explicit kernel(const blt::i32 size = 2): size(size)
+		{}
 
 		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
 		{
@@ -409,7 +442,8 @@ sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
 {
 	struct kernel
 	{
-		explicit kernel(const blt::i32 size = 2): size(size) {}
+		explicit kernel(const blt::i32 size = 2): size(size)
+		{}
 
 		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
 		{
@@ -454,6 +488,79 @@ sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
 	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
 }
 
+sampler_color_difference_hsv_t::sampler_color_difference_hsv_t(const image_t& image)
+{
+	const sampler_hsv_op_t srgb{image, 1};
+	auto                    average_color = srgb.get_values()[0];
+	float                   alpha         = 0;
+	blt::vec3               color_difference;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			auto value = access_image(image, x, y);
+
+			const auto a    = value.a();
+			auto       diff = average_color - blt::make_vec3(value).linear_rgb_to_hsv();
+			color_difference += diff * diff * a;
+			alpha += a;
+		}
+	}
+	if (alpha != 0)
+		color_difference = color_difference.sqrt() / alpha;
+	color_differences.push_back(color_difference);
+}
+
+sampler_kernel_filter_hsv_t::sampler_kernel_filter_hsv_t(const image_t& image)
+{
+	struct kernel
+	{
+		explicit kernel(const blt::i32 size = 2): size(size)
+		{}
+
+		[[nodiscard]] blt::vec3 calculate(const image_t& image, const blt::i32 x, const blt::i32 y) const
+		{
+			blt::vec3 avg;
+			float     alpha = 0.0f;
+			for (blt::i32 i = -size; i <= size; i++)
+			{
+				for (blt::i32 j = -size; j <= size; j++)
+				{
+					auto px = x + i;
+					auto py = y + i;
+					if (px < 0)
+						px = image.width + px;
+					if (px >= image.width)
+						px = image.width - px;
+					if (py < 0)
+						py = image.height + py;
+					if (py >= image.height)
+						py = image.height - py;
+					auto value = access_image(image, px, py);
+					avg += blt::make_vec3(value).linear_rgb_to_hsv() * value.a();
+					alpha += value.a();
+				}
+			}
+			return avg / alpha;
+		}
+
+		blt::i32 size;
+	};
+
+	const sampler_hsv_op_t srgb{image, 1};
+	const auto              average_color = srgb.get_values()[0];
+	blt::vec3               total;
+	for (blt::i32 y = 0; y < image.height; y++)
+	{
+		for (blt::i32 x = 0; x < image.width; x++)
+		{
+			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			total += diff * diff;
+		}
+	}
+	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+}
+
 float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
 {
 	const auto s1_v = s1.get_values();
@@ -468,17 +575,96 @@ float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface
 
 float comparator_mean_sample_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
 {
-	const auto s1_v = s1.get_values();
-	const auto s2_v = s2.get_values();
+	std::array<float, 3> local_floats = {factor0, factor1, factor2};
+	const auto           s1_v         = s1.get_values();
+	const auto           s2_v         = s2.get_values();
 	BLT_ASSERT(s1_v.size() == s2_v.size() && "samplers must provide the same number of elements");
 	float total = 0;
 	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
 	{
-		const blt::vec3 diff   = s1_v.front() - s2_v.front();
+		const blt::vec3 diff   = a - b;
 		float           ltotal = 0;
-		for (const float f : diff)
+		for (const auto [f, control] : blt::in_pairs(diff, local_floats))
+			ltotal += f * f * control;
+		total += std::sqrt(ltotal);
+	}
+	return total / static_cast<float>(s1_v.size());
+}
+
+float comparator_mean_sample_oklab_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
+{
+	const blt::vec3 local_floats = {factor0, factor1, factor2};
+	const auto      s1_v         = s1.get_values();
+	const auto      s2_v         = s2.get_values();
+	BLT_ASSERT(s1_v.size() == s2_v.size() && "samplers must provide the same number of elements");
+	float total = 0;
+	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
+	{
+		const blt::vec3 diff = (a.oklab_to_oklch() * local_floats).oklch_to_oklab() - (
+								   b.oklab_to_oklch() * local_floats).oklch_to_oklab();
+		float ltotal = 0;
+		for (const auto f : diff)
 			ltotal += f * f;
 		total += std::sqrt(ltotal);
+	}
+	return total / static_cast<float>(s1_v.size());
+}
+
+inline double delta_hue_rad(const double h1_deg, const double h2_deg)
+{
+	const double dh = std::fmod(h2_deg - h1_deg + 540.0, 360.0) - 180.0; // –180 … +180
+	return dh * (M_PI / 180.0);                                    // radians
+}
+
+inline double delta_e_hsv_cartesian(const blt::vec3& a, const blt::vec3& b)
+{
+	// polar plane radius we choose:  r = V·S      (full chroma information)
+	const double r1 = a[2] * a[1];
+	const double r2 = b[2] * b[1];
+
+	const double dh = delta_hue_rad(a[0], b[0]);
+	const double cos_dh = std::cos(dh);
+
+	// chord length² on the circle section  (same idea as OKLCH example)
+	const double d_rad2 = r1 * r1 + r2 * r2 - 2.0 * r1 * r2 * cos_dh;
+
+	// vertical axis (value) difference
+	const double dv = a[2] - b[2];
+
+	return std::sqrt(d_rad2 + dv * dv);
+}
+
+inline double delta_e_hsv_weighted(const blt::vec3& a, const blt::vec3& b,
+								   double alpha = 1.0,    // weight for radius/chroma
+								   double beta  = 0.5)    // weight for value/lightness
+{
+	const double r1 = a[2] * a[1];
+	const double r2 = b[2] * b[1];
+
+	const double dh = delta_hue_rad(a[0], b[0]);
+	const double cos_dh = std::cos(dh);
+
+	const double d_rad2 = r1 * r1 + r2 * r2 - 2.0 * r1 * r2 * cos_dh;
+	const double dv2    = (a[2] - b[2]) * (a[2] - b[2]);
+
+	return std::sqrt(alpha * d_rad2 + beta * dv2);
+}
+
+
+float comparator_mean_sample_hsv_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
+{
+	const blt::vec3 local_floats = {factor0, factor1, factor2};
+	const auto      s1_v         = s1.get_values();
+	const auto      s2_v         = s2.get_values();
+	BLT_ASSERT(s1_v.size() == s2_v.size() && "samplers must provide the same number of elements");
+	float total = 0;
+	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
+	{
+		// const blt::vec3 diff   = a - b;
+		// float           ltotal = 0;
+		// for (const auto [f, control] : blt::in_pairs(diff, local_floats))
+		// 	ltotal += f * f * control;
+		total += delta_e_hsv_weighted(a * local_floats, b * local_floats);
 	}
 	return total / static_cast<float>(s1_v.size());
 }
@@ -492,7 +678,7 @@ float comparator_nearest_sample_euclidean_t::compare(sampler_interface_t& s1, sa
 
 	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
 	{
-		const blt::vec3 diff   = s1_v.front() - s2_v.front();
+		const blt::vec3 diff   = a - b;
 		float           ltotal = 0;
 		for (const float f : diff)
 			ltotal += f * f;

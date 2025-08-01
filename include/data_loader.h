@@ -91,6 +91,18 @@ struct sampler_srgb_op_t final : sampler_interface_t
 	std::vector<blt::vec3> averages;
 };
 
+struct sampler_hsv_op_t final : sampler_interface_t
+{
+	explicit sampler_hsv_op_t(const image_t& image, blt::i32 samples = 1);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return averages;
+	}
+
+	std::vector<blt::vec3> averages;
+};
+
 struct sampler_color_difference_oklab_t final : sampler_interface_t
 {
 	explicit sampler_color_difference_oklab_t(const image_t& image);
@@ -163,8 +175,36 @@ struct sampler_kernel_filter_srgb_t final : sampler_interface_t
 	std::vector<blt::vec3> kernel_averages;
 };
 
+struct sampler_color_difference_hsv_t final : sampler_interface_t
+{
+	explicit sampler_color_difference_hsv_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return color_differences;
+	}
+
+	std::vector<blt::vec3> color_differences;
+};
+
+struct sampler_kernel_filter_hsv_t final : sampler_interface_t
+{
+	explicit sampler_kernel_filter_hsv_t(const image_t& image);
+
+	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	{
+		return kernel_averages;
+	}
+
+	std::vector<blt::vec3> kernel_averages;
+};
+
 struct comparator_interface_t
 {
+	float factor0 = 1;
+	float factor1 = 1;
+	float factor2 = 1;
+
 	virtual ~comparator_interface_t() = default;
 	virtual float compare(sampler_interface_t& s1, sampler_interface_t& s2) = 0;
 
@@ -181,6 +221,16 @@ struct comparator_euclidean_t final : comparator_interface_t
 };
 
 struct comparator_mean_sample_euclidean_t final : comparator_interface_t
+{
+	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
+};
+
+struct comparator_mean_sample_oklab_euclidean_t final : comparator_interface_t
+{
+	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
+};
+
+struct comparator_mean_sample_hsv_euclidean_t final : comparator_interface_t
 {
 	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
 };
