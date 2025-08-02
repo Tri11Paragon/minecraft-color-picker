@@ -491,9 +491,9 @@ sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
 sampler_color_difference_hsv_t::sampler_color_difference_hsv_t(const image_t& image)
 {
 	const sampler_hsv_op_t srgb{image, 1};
-	auto                    average_color = srgb.get_values()[0];
-	float                   alpha         = 0;
-	blt::vec3               color_difference;
+	auto                   average_color = srgb.get_values()[0];
+	float                  alpha         = 0;
+	blt::vec3              color_difference;
 	for (blt::i32 y = 0; y < image.height; y++)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
@@ -548,8 +548,8 @@ sampler_kernel_filter_hsv_t::sampler_kernel_filter_hsv_t(const image_t& image)
 	};
 
 	const sampler_hsv_op_t srgb{image, 1};
-	const auto              average_color = srgb.get_values()[0];
-	blt::vec3               total;
+	const auto             average_color = srgb.get_values()[0];
+	blt::vec3              total;
 	for (blt::i32 y = 0; y < image.height; y++)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
@@ -622,7 +622,7 @@ inline double delta_e_hsv_cartesian(const blt::vec3& a, const blt::vec3& b)
 	const double r1 = a[2] * a[1];
 	const double r2 = b[2] * b[1];
 
-	const double dh = delta_hue_rad(a[0], b[0]);
+	const double dh     = delta_hue_rad(a[0], b[0]);
 	const double cos_dh = std::cos(dh);
 
 	// chord length² on the circle section  (same idea as OKLCH example)
@@ -634,14 +634,15 @@ inline double delta_e_hsv_cartesian(const blt::vec3& a, const blt::vec3& b)
 	return std::sqrt(d_rad2 + dv * dv);
 }
 
-inline double delta_e_hsv_weighted(const blt::vec3& a, const blt::vec3& b,
-								   double alpha = 1.0,    // weight for radius/chroma
-								   double beta  = 0.5)    // weight for value/lightness
+inline double delta_e_hsv_weighted(const blt::vec3& a,
+								   const blt::vec3& b,
+								   double           alpha = 1.0,    // weight for radius/chroma
+								   double           beta  = 0.5)    // weight for value/lightness
 {
 	const double r1 = a[2] * a[1];
 	const double r2 = b[2] * b[1];
 
-	const double dh = delta_hue_rad(a[0], b[0]);
+	const double dh     = delta_hue_rad(a[0], b[0]);
 	const double cos_dh = std::cos(dh);
 
 	const double d_rad2 = r1 * r1 + r2 * r2 - 2.0 * r1 * r2 * cos_dh;
@@ -650,12 +651,11 @@ inline double delta_e_hsv_weighted(const blt::vec3& a, const blt::vec3& b,
 	return std::sqrt(alpha * d_rad2 + beta * dv2);
 }
 
-
-float comparator_mean_sample_hsv_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
+float comparator_mean_sample_hsv_euclidean_t::compare(sampler_interface_t& input1, sampler_interface_t& input2)
 {
 	const blt::vec3 local_floats = {factor0, factor1, factor2};
-	const auto      s1_v         = s1.get_values();
-	const auto      s2_v         = s2.get_values();
+	const auto      s1_v         = input1.get_values();
+	const auto      s2_v         = input2.get_values();
 	BLT_ASSERT(s1_v.size() == s2_v.size() && "samplers must provide the same number of elements");
 	float total = 0;
 	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
@@ -664,7 +664,30 @@ float comparator_mean_sample_hsv_euclidean_t::compare(sampler_interface_t& s1, s
 		// float           ltotal = 0;
 		// for (const auto [f, control] : blt::in_pairs(diff, local_floats))
 		// 	ltotal += f * f * control;
-		total += delta_e_hsv_weighted(a * local_floats, b * local_floats);
+		// auto diff = a - b;
+		// float l_total = (diff[1] * diff[1] * factor1) + (diff[2] * diff[2] * factor2);
+		// const float h_dist = std::cos(blt::toRadians(a[0] / 4)) - std::cos(blt::toRadians(b[0] / 4));
+		// l_total += h_dist * h_dist * factor0;
+
+		const auto h1 = a[0];
+		const auto h2 = b[0];
+		const auto s1 = a[1];
+		const auto s2 = b[1];
+		const auto v1 = a[2];
+		const auto v2 = a[2];
+
+		// const auto dh = (std::min(std::abs(h1 - h0), 360 - std::abs(h1 - h0)) / 180.0f) * factor0;
+		// const auto ds = std::abs(s1 - s0) * 0.5 * factor1;
+		// const auto dv = std::abs(v1 - v0) * 0.25 * factor2;
+
+
+		total += std::sqrt(std::pow(std::sin(blt::toRadians(h1)) * s1 * v1 - std::sin(blt::toRadians(h2)) * s2 * v2, 2)
+						   + std::pow(std::cos(blt::toRadians(h1)) * s1 * v1 - std::cos(blt::toRadians(h2)) * s2 * v2,
+									  2)
+						   + std::pow(v1 - v2, 2));
+
+		// total += sqrt(l_total);
+		// total += delta_e_hsv_weighted(a * local_floats, b * local_floats);
 	}
 	return total / static_cast<float>(s1_v.size());
 }

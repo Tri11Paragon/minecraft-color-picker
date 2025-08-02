@@ -232,7 +232,7 @@ struct comparator_mean_sample_oklab_euclidean_t final : comparator_interface_t
 
 struct comparator_mean_sample_hsv_euclidean_t final : comparator_interface_t
 {
-	float compare(sampler_interface_t& s1, sampler_interface_t& s2) override;
+	float compare(sampler_interface_t& input1, sampler_interface_t& input2) override;
 };
 
 struct comparator_nearest_sample_euclidean_t final : comparator_interface_t
