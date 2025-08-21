@@ -27,6 +27,7 @@
 #include <utility>
 #include <blt/fs/stream_wrappers.h>
 #include <blt/gfx/window.h>
+#include <blt/math/colors.h>
 #include <blt/math/log_util.h>
 #include <blt/std/ranges.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -39,7 +40,48 @@ extern assets_t                         assets;
 struct tab_data_t;
 static size_t next_tab_id = 1;
 
+
 std::vector<std::pair<std::unique_ptr<tab_data_t>, size_t>> tabs_to_add;
+
+
+static class color_copy_paste_t
+{
+public:
+	void push_color(const blt::color_t& color)
+	{
+		copied_colors.push(color);
+	}
+
+	[[nodiscard]] std::optional<blt::color_t> get_color() const
+	{
+		if (copied_colors.empty())
+			return {};
+		return copied_colors.top();
+	}
+
+	void pop()
+	{
+		if (!copied_colors.empty())
+		{
+			copied_colors_POPPED.push(copied_colors.top());
+			copied_colors.pop();
+		}
+	}
+
+	void redo()
+	{
+		if (!copied_colors_POPPED.empty())
+		{
+			copied_colors.push(copied_colors_POPPED.top());
+			copied_colors_POPPED.pop();
+		}
+	}
+
+private:
+	std::stack<blt::color_t> copied_colors;
+	std::stack<blt::color_t> copied_colors_POPPED;
+} history_stack;
+
 
 static void HelpMarker(const std::string& desc)
 {
@@ -66,7 +108,10 @@ struct min_max_t
 			max = v;
 	}
 
-	[[nodiscard]] float scale() const { return std::abs(max - min); }
+	[[nodiscard]] float scale() const
+	{
+		return std::abs(max - min);
+	}
 
 	// [[nodiscard]] float normalize(const float f) const { return f; }
 	[[nodiscard]] float normalize(const float f) const
@@ -103,14 +148,14 @@ struct tab_data_t
 	{
 		std::string        name;
 		const gpu_image_t* texture;
-		blt::vec3          average;
+		blt::color_t          average;
 		float              dist_avg;
 		float              dist_color;
 		float              dist_kernel;
 
 		ordering_t(std::string        name,
 				   const gpu_image_t* texture,
-				   const blt::vec3&   average,
+				   const blt::color_t&   average,
 				   const float        dist_avg,
 				   const float        dist_color,
 				   const float        dist_kernel) : name{std::move(name)},
@@ -118,7 +163,8 @@ struct tab_data_t
 													 average{average},
 													 dist_avg{dist_avg},
 													 dist_color{dist_color},
-													 dist_kernel{dist_kernel} {}
+													 dist_kernel{dist_kernel}
+		{}
 	};
 
 
@@ -130,7 +176,8 @@ struct tab_data_t
 			blt::vec3               current_color{0, 0, 0};
 			std::vector<ordering_t> ordering;
 
-			explicit value_t(const float offset) : offset{offset} {}
+			explicit value_t(const float offset) : offset{offset}
+			{}
 
 			value_t() = default;
 		};
@@ -140,7 +187,8 @@ struct tab_data_t
 		std::string          name;
 
 		color_relationship_t(const std::vector<value_t>& colors, std::string name) : colors{colors},
-			name{std::move(name)} {}
+			name{std::move(name)}
+		{}
 	};
 
 
@@ -283,6 +331,18 @@ struct tab_data_t
 
 	void draw_config_tools()
 	{
+		if (selected_block_texture != nullptr)
+		{
+			const auto sampler = color_sampler_t(selected_block_texture->image, samples);
+			const auto value   = sampler->get_values().front();
+			auto vec3 = value.to_vec3();
+			ImGui::Text("Image Color: (%f, %f, %f)", vec3[0], vec3[1], vec3[2]);
+			ImGui::SameLine();
+			if (ImGui::Button("Copy"))
+			{
+				history_stack.push_color(value);
+			}
+		}
 		pending_change |= ImGui::InputInt("Images to Display", &images);
 		pending_change |= ImGui::InputInt("Samples (per axis)", &samples);
 		if (ImGui::InputText("Access Control String", &control_list))
@@ -480,16 +540,16 @@ struct tab_data_t
 				case 0:
 				default:
 				{
-					auto converted  = selector.current_color.linear_rgb_to_oklab().oklab_to_oklch();
+					auto converted  = blt::color::linear_rgb_t{selector.current_color}.to_oklch().to_vec3();
 					converted[2]    = converted[2] + diff;
-					e.current_color = converted.oklch_to_oklab().oklab_to_linear_rgb();
+					e.current_color = blt::color::oklch_t{converted}.to_linear_rgb();
 					break;
 				}
 				case 1:
 				{
-					auto converted  = selector.current_color.linear_rgb_to_hsv();
+					auto converted  = blt::color::linear_rgb_t{selector.current_color}.to_hsv().to_vec3();
 					converted[0]    = converted[0] + diff;
-					e.current_color = converted.hsv_to_linear_rgb();
+					e.current_color = blt::color::hsv_t{converted}.to_linear_rgb();
 					break;
 				}
 			}
@@ -513,7 +573,10 @@ struct tab_data_t
 
 	explicit tab_data_t(const size_t id):
 		tab_name("Unconfigured##" + std::to_string(id)),
-		id(id) { list = get_blocks_control_list(); }
+		id(id)
+	{
+		list = get_blocks_control_list();
+	}
 
 	void render()
 	{
@@ -600,7 +663,10 @@ struct tab_data_t
 				if (ImGui::ColorPicker3("##SelectBlocks",
 										color_picker_data.data(),
 										ImGuiColorEditFlags_InputRGB |
-										ImGuiColorEditFlags_PickerHueBar)) { skipped_index.clear(); }
+										ImGuiColorEditFlags_PickerHueBar))
+				{
+					skipped_index.clear();
+				}
 				ImGui::EndChild();
 				auto sampler = color_source_t(blt::vec3{color_picker_data}, samples);
 
@@ -1180,28 +1246,28 @@ struct tab_data_t
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_oklab()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(image.linear_rgb_to_oklab(), samples * samples);
+			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_oklab(), samples * samples);
 		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_linrgb()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(image, samples * samples);
+			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}, samples * samples);
 		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_srgb()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(image.linear_to_srgb(), samples * samples);
+			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_srgb(), samples * samples);
 		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_hsv()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(image.linear_rgb_to_hsv(), samples * samples);
+			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_hsv(), samples * samples);
 		};
 	}
 
@@ -1223,52 +1289,72 @@ struct tab_data_t
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> make_sampler_srgb()
 	{
-		return [](const image_t& image, int samples) { return std::make_unique<sampler_srgb_op_t>(image, samples); };
+		return [](const image_t& image, int samples) {
+			return std::make_unique<sampler_srgb_op_t>(image, samples);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&, int)> make_sampler_hsv()
 	{
-		return [](const image_t& image, int samples) { return std::make_unique<sampler_hsv_op_t>(image, samples); };
+		return [](const image_t& image, int samples) {
+			return std::make_unique<sampler_hsv_op_t>(image, samples);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_oklab()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_oklab_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_oklab_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_linrgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_rgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_rgb_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_srgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_srgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_srgb_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_difference_hsv()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_color_difference_hsv_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_color_difference_hsv_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_oklab()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_oklab_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_oklab_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_linrgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_rgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_rgb_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_srgb()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_srgb_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_srgb_t>(image);
+		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const image_t&)> make_kernel_hsv()
 	{
-		return [](const image_t& image) { return std::make_unique<sampler_kernel_filter_hsv_t>(image); };
+		return [](const image_t& image) {
+			return std::make_unique<sampler_kernel_filter_hsv_t>(image);
+		};
 	}
 };
 
@@ -1284,8 +1370,8 @@ void init_tabs()
 void render_tabs()
 {
 	if (ImGui::BeginTabBar(
-				"Color Views",
-				ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
+		"Color Views",
+		ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
 	{
 		if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
 			window_tabs.emplace_back(next_tab_id++);

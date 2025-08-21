@@ -25,7 +25,7 @@
 #include <blt/logging/logging.h>
 #include <blt/std/hashmap.h>
 #include <blt/std/ranges.h>
-#include <blt/std/string.h>
+#include <blt/std/string_algo.h>
 
 using json = nlohmann::json;
 

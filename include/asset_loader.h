@@ -20,7 +20,7 @@
 #define ASSET_LOADER_H
 
 #include <sql.h>
-#include <blt/std/expected.h>
+#include <blt/outcome/expected.h>
 
 #include <utility>
 #include <blt/math/vectors.h>

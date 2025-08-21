@@ -19,6 +19,8 @@
 #include <data_loader.h>
 #include <blt/logging/logging.h>
 
+using namespace blt::color;
+
 database_t load_database(const std::filesystem::path& path)
 {
 	database_t db{path.string()};
@@ -174,13 +176,13 @@ sampler_oklab_op_t::sampler_oklab_op_t(const image_t& image, const blt::i32 samp
 					auto value = access_image(image, x, y);
 
 					const auto a = value.a();
-					average += blt::make_vec3(value).linear_rgb_to_oklab() * a;
+					average += from<linear_rgb_t>(value).as_oklab().to_vec3() * a;
 					alpha += a;
 				}
 			}
 			if (alpha != 0)
 				average = average / alpha;
-			averages.push_back(average);
+			averages.emplace_back(oklab_t{average});
 		}
 	}
 }
@@ -208,7 +210,7 @@ sampler_linear_rgb_op_t::sampler_linear_rgb_op_t(const image_t& image, const blt
 			}
 			if (alpha != 0)
 				average = average / alpha;
-			averages.push_back(average);
+			averages.emplace_back(linear_rgb_t{average});
 		}
 	}
 }
@@ -230,13 +232,13 @@ sampler_srgb_op_t::sampler_srgb_op_t(const image_t& image, blt::i32 samples)
 					auto value = access_image(image, x, y);
 
 					const auto a = value.a();
-					average += blt::make_vec3(value).linear_to_srgb() * a;
+					average += from<linear_rgb_t>(value).as_srgb().to_vec3() * a;
 					alpha += a;
 				}
 			}
 			if (alpha != 0)
 				average = average / alpha;
-			averages.push_back(average);
+			averages.emplace_back(srgb_t{average});
 		}
 	}
 }
@@ -258,13 +260,13 @@ sampler_hsv_op_t::sampler_hsv_op_t(const image_t& image, const blt::i32 samples)
 					auto value = access_image(image, x, y);
 
 					const auto a = value.a();
-					average += blt::make_vec3(value).linear_rgb_to_hsv() * a;
+					average += from<linear_rgb_t>(value).as_hsv().to_vec3() * a;
 					alpha += a;
 				}
 			}
 			if (alpha != 0)
 				average = average / alpha;
-			averages.push_back(average);
+			averages.emplace_back(hsv_t{average});
 		}
 	}
 }
@@ -282,14 +284,14 @@ sampler_color_difference_oklab_t::sampler_color_difference_oklab_t(const image_t
 			auto value = access_image(image, x, y);
 
 			const auto a    = value.a();
-			auto       diff = average_color - blt::make_vec3(value).linear_rgb_to_oklab();
+			auto       diff = average_color.as_oklab().to_vec3() - from<linear_rgb_t>(value).as_oklab().to_vec3();
 			color_difference += diff * diff * a;
 			alpha += a;
 		}
 	}
 	if (alpha != 0)
 		color_difference = color_difference.sqrt() / alpha;
-	color_differences.push_back(color_difference);
+	color_differences.emplace_back(oklab_t{color_difference});
 }
 
 sampler_kernel_filter_oklab_t::sampler_kernel_filter_oklab_t(const image_t& image)
@@ -318,7 +320,7 @@ sampler_kernel_filter_oklab_t::sampler_kernel_filter_oklab_t(const image_t& imag
 					if (py >= image.height)
 						py = image.height - py;
 					auto value = access_image(image, px, py);
-					avg += blt::make_vec3(value).linear_rgb_to_oklab() * value.a();
+					avg += from<linear_rgb_t>(value).as_oklab().to_vec3() * value.a();
 					alpha += value.a();
 				}
 			}
@@ -335,11 +337,11 @@ sampler_kernel_filter_oklab_t::sampler_kernel_filter_oklab_t(const image_t& imag
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			const auto diff = average_color.as_oklab().to_vec3() - kernel{1}.calculate(image, x, y);
 			total += diff * diff;
 		}
 	}
-	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+	kernel_averages.emplace_back(oklab_t{total.sqrt() / (image.width * image.height)});
 }
 
 sampler_color_difference_rgb_t::sampler_color_difference_rgb_t(const image_t& image)
@@ -355,14 +357,14 @@ sampler_color_difference_rgb_t::sampler_color_difference_rgb_t(const image_t& im
 			auto value = access_image(image, x, y);
 
 			const auto a    = value.a();
-			auto       diff = average_color - blt::make_vec3(value);
+			auto       diff = average_color.as_linear_rgb().to_vec3() - blt::make_vec3(value);
 			color_difference += diff * diff * a;
 			alpha += a;
 		}
 	}
 	if (alpha != 0)
 		color_difference = color_difference.sqrt() / alpha;
-	color_differences.push_back(color_difference);
+	color_differences.emplace_back(linear_rgb_t{color_difference});
 }
 
 sampler_kernel_filter_rgb_t::sampler_kernel_filter_rgb_t(const image_t& image)
@@ -408,11 +410,11 @@ sampler_kernel_filter_rgb_t::sampler_kernel_filter_rgb_t(const image_t& image)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			const auto diff = average_color.as_linear_rgb().to_vec3() - kernel{1}.calculate(image, x, y);
 			total += diff * diff;
 		}
 	}
-	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+	kernel_averages.emplace_back(linear_rgb_t{total.sqrt() / (image.width * image.height)});
 }
 
 sampler_color_difference_srgb_t::sampler_color_difference_srgb_t(const image_t& image)
@@ -427,15 +429,15 @@ sampler_color_difference_srgb_t::sampler_color_difference_srgb_t(const image_t& 
 		{
 			auto value = access_image(image, x, y);
 
-			const auto a    = value.a();
-			auto       diff = average_color - blt::make_vec3(value).linear_to_srgb();
+			const auto a = value.a();
+			auto diff = average_color.as_srgb().to_vec3() - linear_rgb_t{blt::make_vec3(value)}.to_srgb().to_vec3();
 			color_difference += diff * diff * a;
 			alpha += a;
 		}
 	}
 	if (alpha != 0)
 		color_difference = color_difference.sqrt() / alpha;
-	color_differences.push_back(color_difference);
+	color_differences.emplace_back(srgb_t{color_difference});
 }
 
 sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
@@ -464,7 +466,7 @@ sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
 					if (py >= image.height)
 						py = image.height - py;
 					auto value = access_image(image, px, py);
-					avg += blt::make_vec3(value).linear_to_srgb() * value.a();
+					avg += linear_rgb_t{blt::make_vec3(value)}.to_srgb().to_vec3() * value.a();
 					alpha += value.a();
 				}
 			}
@@ -481,11 +483,11 @@ sampler_kernel_filter_srgb_t::sampler_kernel_filter_srgb_t(const image_t& image)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			const auto diff = average_color.as_srgb().to_vec3() - kernel{1}.calculate(image, x, y);
 			total += diff * diff;
 		}
 	}
-	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+	kernel_averages.emplace_back(srgb_t{total.sqrt() / (image.width * image.height)});
 }
 
 sampler_color_difference_hsv_t::sampler_color_difference_hsv_t(const image_t& image)
@@ -501,14 +503,14 @@ sampler_color_difference_hsv_t::sampler_color_difference_hsv_t(const image_t& im
 			auto value = access_image(image, x, y);
 
 			const auto a    = value.a();
-			auto       diff = average_color - blt::make_vec3(value).linear_rgb_to_hsv();
+			auto       diff = average_color.as_hsv().to_vec3() - linear_rgb_t{blt::make_vec3(value)}.to_hsv().to_vec3();
 			color_difference += diff * diff * a;
 			alpha += a;
 		}
 	}
 	if (alpha != 0)
 		color_difference = color_difference.sqrt() / alpha;
-	color_differences.push_back(color_difference);
+	color_differences.emplace_back(hsv_t{color_difference});
 }
 
 sampler_kernel_filter_hsv_t::sampler_kernel_filter_hsv_t(const image_t& image)
@@ -537,7 +539,7 @@ sampler_kernel_filter_hsv_t::sampler_kernel_filter_hsv_t(const image_t& image)
 					if (py >= image.height)
 						py = image.height - py;
 					auto value = access_image(image, px, py);
-					avg += blt::make_vec3(value).linear_rgb_to_hsv() * value.a();
+					avg += linear_rgb_t{blt::make_vec3(value)}.to_hsv().to_vec3() * value.a();
 					alpha += value.a();
 				}
 			}
@@ -554,11 +556,11 @@ sampler_kernel_filter_hsv_t::sampler_kernel_filter_hsv_t(const image_t& image)
 	{
 		for (blt::i32 x = 0; x < image.width; x++)
 		{
-			const auto diff = average_color - kernel{1}.calculate(image, x, y);
+			const auto diff = average_color.as_hsv().to_vec3() - kernel{1}.calculate(image, x, y);
 			total += diff * diff;
 		}
 	}
-	kernel_averages.push_back(total.sqrt() / (image.width * image.height));
+	kernel_averages.emplace_back(hsv_t{total.sqrt() / (image.width * image.height)});
 }
 
 float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface_t& s2)
@@ -566,7 +568,7 @@ float comparator_euclidean_t::compare(sampler_interface_t& s1, sampler_interface
 	const auto s1_v = s1.get_values();
 	const auto s2_v = s2.get_values();
 	BLT_ASSERT(s1_v.size() == s2_v.size() && s1_v.size() == 1 && "Please use other comparators for multi-sample sets!");
-	const blt::vec3 diff  = s1_v.front() - s2_v.front();
+	const blt::vec3 diff  = s1_v.front().to_vec3() - s2_v.front().to_vec3();
 	float           total = 0;
 	for (const float f : diff)
 		total += f * f;
@@ -582,7 +584,7 @@ float comparator_mean_sample_euclidean_t::compare(sampler_interface_t& s1, sampl
 	float total = 0;
 	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
 	{
-		const blt::vec3 diff   = a - b;
+		const blt::vec3 diff   = a.to_vec3() - b.to_vec3();
 		float           ltotal = 0;
 		for (const auto [f, control] : blt::in_pairs(diff, local_floats))
 			ltotal += f * f * control;
@@ -600,8 +602,8 @@ float comparator_mean_sample_oklab_euclidean_t::compare(sampler_interface_t& s1,
 	float total = 0;
 	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
 	{
-		const blt::vec3 diff = (a.oklab_to_oklch() * local_floats).oklch_to_oklab() - (
-								   b.oklab_to_oklch() * local_floats).oklch_to_oklab();
+		const blt::vec3 diff = oklch_t(a.as_oklch().to_vec3() * local_floats).to_oklab().to_vec3() - oklch_t(
+								   b.as_oklch().to_vec3() * local_floats).to_oklab().to_vec3();
 		float ltotal = 0;
 		for (const auto f : diff)
 			ltotal += f * f;
@@ -669,22 +671,23 @@ float comparator_mean_sample_hsv_euclidean_t::compare(sampler_interface_t& input
 		// const float h_dist = std::cos(blt::toRadians(a[0] / 4)) - std::cos(blt::toRadians(b[0] / 4));
 		// l_total += h_dist * h_dist * factor0;
 
-		const auto h1 = a[0];
-		const auto h2 = b[0];
-		const auto s1 = a[1];
-		const auto s2 = b[1];
-		const auto v1 = a[2];
-		const auto v2 = a[2];
+		const auto h1 = a.to_vec3()[0];
+		const auto h2 = b.to_vec3()[0];
+		const auto s1 = a.to_vec3()[1];
+		const auto s2 = b.to_vec3()[1];
+		const auto v1 = a.to_vec3()[2];
+		const auto v2 = a.to_vec3()[2];
 
 		// const auto dh = (std::min(std::abs(h1 - h0), 360 - std::abs(h1 - h0)) / 180.0f) * factor0;
 		// const auto ds = std::abs(s1 - s0) * 0.5 * factor1;
 		// const auto dv = std::abs(v1 - v0) * 0.25 * factor2;
 
 
-		total += std::sqrt(std::pow(std::sin(blt::toRadians(h1)) * s1 * v1 - std::sin(blt::toRadians(h2)) * s2 * v2, 2)
-						   + std::pow(std::cos(blt::toRadians(h1)) * s1 * v1 - std::cos(blt::toRadians(h2)) * s2 * v2,
-									  2)
-						   + std::pow(v1 - v2, 2));
+		total += static_cast<float>(std::sqrt(
+			std::pow(std::sin(blt::toRadians(h1)) * s1 * v1 - std::sin(blt::toRadians(h2)) * s2 * v2, 2)
+			+ std::pow(std::cos(blt::toRadians(h1)) * s1 * v1 - std::cos(blt::toRadians(h2)) * s2 * v2,
+					   2)
+			+ std::pow(v1 - v2, 2)));
 
 		// total += sqrt(l_total);
 		// total += delta_e_hsv_weighted(a * local_floats, b * local_floats);
@@ -701,7 +704,7 @@ float comparator_nearest_sample_euclidean_t::compare(sampler_interface_t& s1, sa
 
 	for (const auto& [a, b] : blt::in_pairs(s1_v, s2_v))
 	{
-		const blt::vec3 diff   = a - b;
+		const blt::vec3 diff   = a.to_vec3() - b.to_vec3();
 		float           ltotal = 0;
 		for (const float f : diff)
 			ltotal += f * f;

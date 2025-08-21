@@ -20,8 +20,9 @@
 #define DATA_LOADER_H
 
 #include <asset_loader.h>
-#include <sql.h>
 #include <filesystem>
+#include <sql.h>
+#include <blt/math/colors.h>
 #include <blt/math/vectors.h>
 #include <blt/std/assert.h>
 #include <blt/std/hashmap.h>
@@ -35,23 +36,23 @@ blt::vec4 access_image(const image_t& image, blt::i32 x, blt::i32 y);
 struct sampler_interface_t
 {
 	virtual ~sampler_interface_t() = default;
-	[[nodiscard]] virtual std::vector<blt::vec3> get_values() const = 0;
+	[[nodiscard]] virtual std::vector<blt::color_t> get_values() const = 0;
 };
 
 struct sampler_single_value_t final : sampler_interface_t
 {
-	explicit sampler_single_value_t(const blt::vec3 value, blt::i32 samples = 1): value{value}, samples{samples}
+	explicit sampler_single_value_t(const blt::color_t value, blt::i32 samples = 1): value{value}, samples{samples}
 	{}
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
-		std::vector<blt::vec3> values;
+		std::vector<blt::color_t> values;
 		for (blt::i32 i = 0; i < samples; i++)
 			values.push_back(value);
 		return values;
 	}
 
-	blt::vec3 value;
+	blt::color_t value;
 	blt::i32 samples;
 };
 
@@ -59,144 +60,144 @@ struct sampler_oklab_op_t final : sampler_interface_t
 {
 	explicit sampler_oklab_op_t(const image_t& image, blt::i32 samples = 1);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return averages;
 	}
 
-	std::vector<blt::vec3> averages;
+	std::vector<blt::color_t> averages;
 };
 
 struct sampler_linear_rgb_op_t final : sampler_interface_t
 {
 	explicit sampler_linear_rgb_op_t(const image_t& image, blt::i32 samples = 1);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return averages;
 	}
 
-	std::vector<blt::vec3> averages;
+	std::vector<blt::color_t> averages;
 };
 
 struct sampler_srgb_op_t final : sampler_interface_t
 {
 	explicit sampler_srgb_op_t(const image_t& image, blt::i32 samples = 1);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return averages;
 	}
 
-	std::vector<blt::vec3> averages;
+	std::vector<blt::color_t> averages;
 };
 
 struct sampler_hsv_op_t final : sampler_interface_t
 {
 	explicit sampler_hsv_op_t(const image_t& image, blt::i32 samples = 1);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return averages;
 	}
 
-	std::vector<blt::vec3> averages;
+	std::vector<blt::color_t> averages;
 };
 
 struct sampler_color_difference_oklab_t final : sampler_interface_t
 {
 	explicit sampler_color_difference_oklab_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return color_differences;
 	}
 
-	std::vector<blt::vec3> color_differences;
+	std::vector<blt::color_t> color_differences;
 };
 
 struct sampler_kernel_filter_oklab_t final : sampler_interface_t
 {
 	explicit sampler_kernel_filter_oklab_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return kernel_averages;
 	}
 
-	std::vector<blt::vec3> kernel_averages;
+	std::vector<blt::color_t> kernel_averages;
 };
 
 struct sampler_color_difference_rgb_t final : sampler_interface_t
 {
 	explicit sampler_color_difference_rgb_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return color_differences;
 	}
 
-	std::vector<blt::vec3> color_differences;
+	std::vector<blt::color_t> color_differences;
 };
 
 struct sampler_kernel_filter_rgb_t final : sampler_interface_t
 {
 	explicit sampler_kernel_filter_rgb_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return kernel_averages;
 	}
 
-	std::vector<blt::vec3> kernel_averages;
+	std::vector<blt::color_t> kernel_averages;
 };
 
 struct sampler_color_difference_srgb_t final : sampler_interface_t
 {
 	explicit sampler_color_difference_srgb_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return color_differences;
 	}
 
-	std::vector<blt::vec3> color_differences;
+	std::vector<blt::color_t> color_differences;
 };
 
 struct sampler_kernel_filter_srgb_t final : sampler_interface_t
 {
 	explicit sampler_kernel_filter_srgb_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return kernel_averages;
 	}
 
-	std::vector<blt::vec3> kernel_averages;
+	std::vector<blt::color_t> kernel_averages;
 };
 
 struct sampler_color_difference_hsv_t final : sampler_interface_t
 {
 	explicit sampler_color_difference_hsv_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return color_differences;
 	}
 
-	std::vector<blt::vec3> color_differences;
+	std::vector<blt::color_t> color_differences;
 };
 
 struct sampler_kernel_filter_hsv_t final : sampler_interface_t
 {
 	explicit sampler_kernel_filter_hsv_t(const image_t& image);
 
-	[[nodiscard]] std::vector<blt::vec3> get_values() const override
+	[[nodiscard]] std::vector<blt::color_t> get_values() const override
 	{
 		return kernel_averages;
 	}
 
-	std::vector<blt::vec3> kernel_averages;
+	std::vector<blt::color_t> kernel_averages;
 };
 
 struct comparator_interface_t
@@ -208,7 +209,7 @@ struct comparator_interface_t
 	virtual ~comparator_interface_t() = default;
 	virtual float compare(sampler_interface_t& s1, sampler_interface_t& s2) = 0;
 
-	float compare(sampler_interface_t& s1, const blt::vec3 point)
+	float compare(sampler_interface_t& s1, const blt::color_t point)
 	{
 		sampler_single_value_t value{point};
 		return compare(s1, value);

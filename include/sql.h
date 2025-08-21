@@ -33,7 +33,7 @@ namespace detail
 	std::string sql_name()
 	{
 		using Decay = std::decay_t<T>;
-		if constexpr (std::is_same_v<Decay, nullptr_t>)
+		if constexpr (std::is_same_v<Decay, std::nullptr_t>)
 			return "NULL";
 		else if constexpr (std::is_integral_v<Decay>)
 			return "INTEGER";
@@ -130,7 +130,7 @@ public:
 		} else if constexpr (std::is_floating_point_v<Decay>)
 		{
 			return sqlite3_bind_double(statement, col, type);
-		} else if constexpr (std::is_same_v<Decay, nullptr_t>)
+		} else if constexpr (std::is_same_v<Decay, std::nullptr_t>)
 		{
 			return sqlite3_bind_null(statement, col);
 		} else if constexpr (std::is_same_v<Decay, std::string> || std::is_same_v<Decay, std::string_view>)
