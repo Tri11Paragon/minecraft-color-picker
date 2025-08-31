@@ -40,8 +40,8 @@ extern assets_t                         assets;
 struct tab_data_t;
 static size_t next_tab_id = 1;
 
-
 std::vector<std::pair<std::unique_ptr<tab_data_t>, size_t>> tabs_to_add;
+std::vector<tab_data_t>                                     window_tabs;
 
 
 static class color_copy_paste_t
@@ -148,22 +148,22 @@ struct tab_data_t
 	{
 		std::string        name;
 		const gpu_image_t* texture;
-		blt::color_t          average;
+		blt::color_t       average;
 		float              dist_avg;
 		float              dist_color;
 		float              dist_kernel;
 
-		ordering_t(std::string        name,
-				   const gpu_image_t* texture,
-				   const blt::color_t&   average,
-				   const float        dist_avg,
-				   const float        dist_color,
-				   const float        dist_kernel) : name{std::move(name)},
-													 texture{texture},
-													 average{average},
-													 dist_avg{dist_avg},
-													 dist_color{dist_color},
-													 dist_kernel{dist_kernel}
+		ordering_t(std::string         name,
+				   const gpu_image_t*  texture,
+				   const blt::color_t& average,
+				   const float         dist_avg,
+				   const float         dist_color,
+				   const float         dist_kernel) : name{std::move(name)},
+													  texture{texture},
+													  average{average},
+													  dist_avg{dist_avg},
+													  dist_color{dist_color},
+													  dist_kernel{dist_kernel}
 		{}
 	};
 
@@ -335,7 +335,7 @@ struct tab_data_t
 		{
 			const auto sampler = color_sampler_t(selected_block_texture->image, samples);
 			const auto value   = sampler->get_values().front();
-			auto vec3 = value.to_vec3();
+			auto       vec3    = value.to_vec3();
 			ImGui::Text("Image Color: (%f, %f, %f)", vec3[0], vec3[1], vec3[2]);
 			ImGui::SameLine();
 			if (ImGui::Button("Copy"))
@@ -344,6 +344,7 @@ struct tab_data_t
 			}
 		}
 		pending_change |= ImGui::InputInt("Images to Display", &images);
+		ImGui::SameLine();
 		pending_change |= ImGui::InputInt("Samples (per axis)", &samples);
 		if (ImGui::InputText("Access Control String", &control_list))
 		{
@@ -406,13 +407,19 @@ struct tab_data_t
 		if (configured == BLOCK_SELECT)
 		{
 			pending_change |= ImGui::SliderFloat("Average Color Weight", &weights[0], 0, 1);
+			ImGui::SameLine();
 			pending_change |= ImGui::Checkbox("Enable Noise In Selection", &enable_noise);
+			ImGui::SameLine();
+			ImGui::Checkbox("Enable Noise Cutoffs", &enable_cutoffs);
+			ImGui::SameLine();
 			if (enable_noise)
 			{
 				pending_change |= ImGui::SliderFloat("Color Difference Weight", &weights[1], 0, 1);
+				ImGui::SameLine();
 				pending_change |= ImGui::SliderFloat("Kernel Difference Weight", &weights[2], 0, 1);
+				ImGui::SameLine();
 			}
-			ImGui::Checkbox("Enable Noise Cutoffs", &enable_cutoffs);
+
 			if (enable_cutoffs)
 			{
 				ImGui::SliderFloat("Color Difference Cutoff",
@@ -420,6 +427,7 @@ struct tab_data_t
 								   color_difference_vals.min,
 								   color_difference_vals.max,
 								   "%.9f");
+				ImGui::SameLine();
 				ImGui::SliderFloat("Kernel Difference Cutoff",
 								   &cutoff_kernel_difference,
 								   kernel_difference_vals.min,
@@ -432,6 +440,9 @@ struct tab_data_t
 		if (samples > 8)
 			samples = 8;
 	}
+
+	void draw_blocks2(std::vector<ordering_t>& ordered_images, const std::string& table_id)
+	{}
 
 	void draw_blocks(std::vector<ordering_t>& ordered_images, const std::string& table_id)
 	{
@@ -492,7 +503,7 @@ struct tab_data_t
 						data.selected_block_texture = texture;
 						data.configured             = BLOCK_SELECT;
 						data.tab_name               = "Block Picker##" + std::to_string(data.id);
-						tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), id);
+						tabs_to_add.emplace_back(std::make_unique<tab_data_t>(std::move(data)), window_tabs.size() - 1);
 					}
 					ImGui::Separator();
 					if (ImGui::Button("Remove"))
@@ -509,10 +520,7 @@ struct tab_data_t
 
 	void draw_order(std::vector<ordering_t>& ordered_images)
 	{
-		draw_config_tools();
-		if (ImGui::BeginChild("ChildImageHolder"))
-			draw_blocks(ordered_images, "ImageSelectionTable");
-		ImGui::EndChild();
+		draw_blocks(ordered_images, "ImageSelectionTable");
 	}
 
 	void process_update(color_relationship_t& rel, const blt::size_t color_index)
@@ -567,11 +575,11 @@ struct tab_data_t
 
 	enum tab_type_t
 	{
-		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER, BLOCK_SELECT, COLOR_WHEEL
+		UNCONFIGURED, COLOR_SELECT, ASSET_BROWSER, BLOCK_SELECT, COLOR_WHEEL, MONOCHROME,
 	};
 
 
-	explicit tab_data_t(const size_t id):
+	explicit tab_data_t(const size_t id) :
 		tab_name("Unconfigured##" + std::to_string(id)),
 		id(id)
 	{
@@ -637,6 +645,15 @@ struct tab_data_t
 						tab_name   = "Color Picker##" + std::to_string(id);
 					}
 
+					if (ImGui::Button("Color Display", ImVec2(btnWidth, btnHeight)))
+					{
+						configured   = COLOR_SELECT;
+						tab_name     = "Display##" + std::to_string(id);
+						images       = 196;
+						samples      = 2;
+						control_list = "";
+					}
+
 					if (ImGui::Button("Block Picker", ImVec2(btnWidth, btnHeight)))
 					{
 						configured = BLOCK_SELECT;
@@ -648,6 +665,11 @@ struct tab_data_t
 						process_update(color_relationships[selected], 0);
 						tab_name = "Color Wheel##" + std::to_string(id);
 					}
+					if (ImGui::Button("Monochromatic", ImVec2(btnWidth, btnHeight)))
+					{
+						configured = MONOCHROME;
+						tab_name   = "Mono##" + std::to_string(id);
+					}
 					if (ImGui::Button("Browser", ImVec2(btnWidth, btnHeight)))
 					{
 						configured = ASSET_BROWSER;
@@ -657,7 +679,7 @@ struct tab_data_t
 				ImGui::EndGroup();
 			}
 			break;
-			case COLOR_SELECT:
+			case MONOCHROME:
 			{
 				ImGui::BeginChild("##Selector", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY);
 				if (ImGui::ColorPicker3("##SelectBlocks",
@@ -667,14 +689,58 @@ struct tab_data_t
 				{
 					skipped_index.clear();
 				}
+				if (ImGui::Button("Paste"))
+				{
+					if (auto color        = history_stack.get_color())
+						color_picker_data = color->as_linear_rgb().unpack();
+				}
+				static constexpr auto names = std::array{"Light", "Dark"};
+
+
 				ImGui::EndChild();
+
+				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
 				auto sampler = color_source_t(blt::vec3{color_picker_data}, samples);
 
 				ordered_images = make_ordering(*sampler, *comparison_interface, {});
 
-				// ImGui::BeginChild("##Selector", ImVec2(0, 0));
-				ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
-				draw_order(ordered_images);
+				draw_config_tools();
+
+				break;
+			}
+			case COLOR_SELECT:
+			{
+				if (ImGui::BeginChild("##Content", ImVec2(0, 0)))
+				{
+					ImGui::BeginChild("BlocksAndImages", ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+					draw_order(ordered_images);
+					ImGui::EndChild();
+					ImGui::SameLine();
+					ImGui::BeginGroup();
+					ImGui::BeginChild("##Outside", ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+					ImGui::BeginChild("##WhySilly", ImVec2(0, 0), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+					if (ImGui::ColorPicker3("##SelectBlocks",
+											color_picker_data.data(),
+											ImGuiColorEditFlags_InputRGB |
+											ImGuiColorEditFlags_PickerHueBar))
+					{
+						skipped_index.clear();
+					}
+					ImGui::EndChild();
+					if (ImGui::Button("Paste"))
+					{
+						if (auto color        = history_stack.get_color())
+							color_picker_data = color->as_linear_rgb().unpack();
+					}
+					auto sampler = color_source_t(blt::vec3{color_picker_data}, samples);
+
+					ordered_images = make_ordering(*sampler, *comparison_interface, {});
+					ImGui::Text("Click the image icon to remove it from the list. This is reset when the color changes.");
+					draw_config_tools();
+					ImGui::EndChild();
+					ImGui::EndGroup();
+				}
+				ImGui::EndChild();
 			}
 			break;
 			case ASSET_BROWSER:
@@ -950,6 +1016,14 @@ struct tab_data_t
 										selector.current_color[1] = data[1];
 										selector.current_color[2] = data[2];
 										process_update(current_mode, i);
+									}
+									if (ImGui::Button("Paste"))
+									{
+										if (auto color = history_stack.get_color())
+										{
+											selector.current_color = color->as_linear_rgb().to_vec3();
+											process_update(current_mode, i);
+										}
 									}
 									draw_blocks(selector.ordering,
 												"ImageSelectionTable" + std::to_string(selector.offset));
@@ -1246,7 +1320,8 @@ struct tab_data_t
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_oklab()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_oklab(), samples * samples);
+			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_oklab(),
+															samples * samples);
 		};
 	}
 
@@ -1260,14 +1335,16 @@ struct tab_data_t
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_srgb()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_srgb(), samples * samples);
+			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_srgb(),
+															samples * samples);
 		};
 	}
 
 	static std::function<std::unique_ptr<sampler_interface_t>(const blt::vec3&, int)> make_source_hsv()
 	{
 		return [](const blt::vec3& image, const int samples) {
-			return std::make_unique<sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_hsv(), samples * samples);
+			return std::make_unique<
+				sampler_single_value_t>(blt::color::linear_rgb_t{image}.to_hsv(), samples * samples);
 		};
 	}
 
@@ -1359,8 +1436,6 @@ struct tab_data_t
 };
 
 
-std::vector<tab_data_t> window_tabs;
-
 void init_tabs()
 {
 	window_tabs.emplace_back(0);
@@ -1369,6 +1444,8 @@ void init_tabs()
 
 void render_tabs()
 {
+	if (window_tabs.empty())
+		window_tabs.emplace_back(next_tab_id++);
 	if (ImGui::BeginTabBar(
 		"Color Views",
 		ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
@@ -1393,8 +1470,10 @@ void render_tabs()
 
 		// stupid hack
 		for (auto& ptr : tabs_to_add)
+		{
 			window_tabs.insert(window_tabs.begin() + static_cast<blt::ptrdiff_t>(ptr.second),
 							   std::move(*ptr.first));
+		}
 		tabs_to_add.clear();
 
 		ImGui::EndTabBar();
