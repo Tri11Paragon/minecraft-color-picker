@@ -58,7 +58,7 @@ option(ENABLE_TSAN "Enable the thread data race sanitizer" OFF)
 option(BUILD_MINECRAFT_COLOR_PICKER_EXAMPLES "Build example programs. This will build with CTest" OFF)
 option(BUILD_MINECRAFT_COLOR_PICKER_TESTS "Build test programs. This will build with CTest" OFF)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 add_subdirectory(lib/blt-with-graphics)
 add_subdirectory(lib/json)

@@ -34,6 +34,7 @@
 #include <blt/config.h>
 #include <blt/fs/stream_wrappers.h>
 #include <blt/std/ranges.h>
+#include <tabs/base.h>
 
 blt::gfx::matrix_state_manager   global_matrices;
 blt::gfx::resource_manager       resources;
@@ -205,6 +206,14 @@ void update(const blt::gfx::window_data& data)
 	avail = ImGui::GetContentRegionAvail();
 	if (ImGui::BeginChild("MainTabs", avail, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 	{
+		ImGui::BeginChild("##PICKER", ImVec2(), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY);
+		static blt::color_t color = blt::color::linear_rgb_t{blt::vec3{0.5, 0.5, 0.5}};
+		std::array modes{color_mode_t{color_mode_t::OkLab}};
+		if (tab_base_t::draw_color_picker(modes, color))
+		{
+
+		}
+		ImGui::EndChild();
 		if (gpu_resources)
 			render_tabs();
 		else
